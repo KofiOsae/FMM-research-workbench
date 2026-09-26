@@ -39,6 +39,7 @@ MATERIAL_INFO = {
     "polycarbonate": ("Polycarbonate · measured bulk polymer", "0.4368–1.052 µm", "Sultanova et al. 2009, DOI 10.12693/APhysPolA.116.585"),
     "polystyrene": ("Polystyrene · measured bulk polymer", "0.4368–1.052 µm", "Sultanova et al. 2009, DOI 10.12693/APhysPolA.116.585"),
     "zeonex": ("Zeonex E48R · measured bulk polymer", "0.4368–1.052 µm", "Sultanova et al. 2009, DOI 10.12693/APhysPolA.116.585"),
+    "tdbc_pva_015": ("TDBC J-aggregate in PVA · strong-coupling benchmark", "0.449–0.729 µm", "Hamideddine et al. 2025 Lorentz model, DOI 10.1038/s41598-025-05526-8; representative low-concentration parameters within the reported 0.15 wt% fit range"),
 }
 
 POLYMER_WAVELENGTHS = np.asarray([.4368, .4861, .5876, .6328, .703, .833, .879, 1.052])
@@ -289,6 +290,15 @@ def material_n(name: str, wavelength_um: float, constant_n: float = 1.0) -> comp
                                +.0200*square/(square-1.8703**2)))
     if name in RAKIC_LD:
         return _rakic_n(name, wavelength_um)
+    if name == "tdbc_pva_015":
+        if not .449 <= wavelength_um <= .729:
+            raise ValueError("TDBC–PVA benchmark is limited to the published 1.7–2.76 eV window (0.449–0.729 µm)")
+        # Published Lorentz form and low-concentration endpoint of the reported
+        # ranges: eps_b=2.31, E0=2.10 eV, gamma=0.068–0.09 eV, f=0.04–0.08.
+        energy = 1.239841984/wavelength_um
+        epsilon = 2.31 - .04*2.10**2/(energy**2-2.10**2+1j*energy*.068)
+        value = np.sqrt(epsilon)
+        return complex(-value if value.imag < 0 else value)
     if name in POLYMER_INDICES:
         if not POLYMER_WAVELENGTHS[0] <= wavelength_um <= POLYMER_WAVELENGTHS[-1]:
             raise ValueError("Sultanova polymer measurements cover 0.4368–1.052 µm")
@@ -340,7 +350,7 @@ def material_catalog(wavelength_um: float) -> dict:
             category = "Imported"
         elif key in {"gold", "silver_rakic", "aluminum_rakic", "copper_rakic"}:
             category = "Metals"
-        elif key in POLYMER_INDICES:
+        elif key in POLYMER_INDICES or key == "tdbc_pva_015":
             category = "Polymers"
         elif key in {"silicon", "sin", "tio2", "al2o3"}:
             category = "Semiconductors and oxides"

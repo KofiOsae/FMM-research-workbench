@@ -62,8 +62,8 @@ def parse_stack(data: dict) -> StackModel:
 
 
 def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
-    if not np.isfinite([start, stop]).all() or not 2 <= points <= 100 or not start < stop:
-        raise ValueError("Use 2–100 wavelengths with increasing finite limits")
+    if not np.isfinite([start, stop]).all() or not 2 <= points <= 150 or not start < stop:
+        raise ValueError("Use 2–150 wavelengths with increasing finite limits")
     wavelengths = np.linspace(start, stop, points)
     rows = []
     for wavelength in wavelengths:
@@ -225,8 +225,8 @@ class Handler(BaseHTTPRequestHandler):
                 model = parse_stack(data["model"])
                 if "start" in data:
                     start, stop, points = float(data["start"]), float(data["stop"]), int(data["points"])
-                    if not np.isfinite([start, stop]).all() or not 2 <= points <= 100 or start >= stop:
-                        raise ValueError("Use 2–100 wavelengths with increasing finite limits")
+                    if not np.isfinite([start, stop]).all() or not 2 <= points <= 150 or start >= stop:
+                        raise ValueError("Use 2–150 wavelengths with increasing finite limits")
                     rows = []
                     for wavelength in np.linspace(start, stop, points):
                         current = StackModel(**{**asdict(model), "layers": model.layers,

@@ -11,7 +11,7 @@ from scipy.optimize import brentq
 
 from bands import BandModel, solve_bands, solve_band_mode
 from benchmark_mpb import mpb_te_first_band
-from materials import gold_n, silica_n, silicon_n, bk7_n, caf2_n, material_catalog
+from materials import gold_n, silica_n, silicon_n, bk7_n, caf2_n, material_catalog, material_n
 from stack import Layer, StackModel, solve_stack, stack_convergence, stack_field, vertical_field, _grid
 from waveguide import WaveguideModel, solve_waveguide
 from app import make_figure
@@ -41,6 +41,31 @@ import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_tdbc_pva_literature_model_produces_two_coupled_branches(self):
+        at_exciton = material_n("tdbc_pva_015", 1.239841984/2.10)
+        self.assertGreater(at_exciton.real, 0)
+        self.assertGreater(at_exciton.imag, 0)
+        model = StackModel(wavelength_um=.55, theta_deg=45,
+            polarization="p", incident_n=1.7786, exit_n=1,
+            layers=(
+                Layer(kind="uniform", thickness_um=.060,
+                      background_material="silver_rakic"),
+                Layer(kind="uniform", thickness_um=.035,
+                      background_material="tdbc_pva_015"),
+            ))
+        wavelengths = np.linspace(.47, .64, 181)
+        reflectance = []
+        for wavelength in wavelengths:
+            current = StackModel(**{**model.__dict__, "layers": model.layers,
+                                    "wavelength_um": float(wavelength)})
+            reflectance.append(solve_tmm(current)["R"])
+        minima = [i for i in range(1, len(reflectance)-1)
+                  if reflectance[i] < reflectance[i-1]
+                  and reflectance[i] < reflectance[i+1]]
+        centers = wavelengths[minima]
+        self.assertTrue(np.any(abs(centers-.520) < .015), centers)
+        self.assertTrue(np.any(abs(centers-.606) < .015), centers)
+
     def test_full_vector_2d_mode_mesh_refinement(self):
         coarse = solve_vector_modes(1.55, .55, .22, 3.47, 1.44, 1,
             .825, .825, .825, .055, 2, 3.3)
