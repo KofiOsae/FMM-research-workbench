@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+.mplconfig
+__pycache__
+*.pyc
+*.log
+*.pid
+user_materials.json
+release
+dist

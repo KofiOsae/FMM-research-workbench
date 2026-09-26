@@ -1,0 +1,434 @@
+"""Local research workbench. Run: python app.py; open http://127.0.0.1:8765/"""
+
+from __future__ import annotations
+
+import io
+import importlib.metadata as metadata
+import json
+import os
+import logging
+from dataclasses import asdict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).parent / ".mplconfig"))
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+from bands import BandModel, solve_bands, band_convergence, solve_band_mode
+from stack import (Layer, StackModel, solve_stack, stack_convergence, grid_convergence,
+                   stack_field, field_validation, vertical_field)
+from waveguide import WaveguideModel, solve_waveguide
+from materials import material_catalog, import_material
+from experiment import compare_or_fit
+from cavity import purcell_estimate
+from tmm import solve_tmm
+from scattering_maps import angle_wavelength_map, kspace_map, polarization_kspace_map
+from resonance import adaptive_resonance
+from multi_resonance import adaptive_multi_resonance, multi_resonance_sweep
+from sweep import evaluate_point
+from multifit import multi_parameter_fit
+from slab_compare import slab_phase_match, compare_stack_layer, dispersion_comparison
+from multilayer_modes import solve_multilayer_modes
+from tolerance import tolerance_study
+from research_report import research_report
+from resonance_fields import resonance_field_report
+from resonant_polarization import resonant_polarization
+from leaky_modes import solve_leaky_mode
+from dipole_ldos import dipole_ldos, dipole_ldos_spectrum
+from polarization_winding import polarization_winding
+from optimization import optimize_geometry
+from bayesian import bayesian_spectrum
+from constitutive import constitutive_response
+from vector_modes import solve_vector_modes
+
+
+ROOT = Path(__file__).parent
+logging.basicConfig(filename=ROOT / "workbench.log", level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+MAX_BODY = 100_000
+
+
+def software_versions() -> dict:
+    return {name: metadata.version(name) for name in ("numpy", "scipy", "grcwa", "matplotlib")}
+
+
+def parse_stack(data: dict) -> StackModel:
+    values = {**data}
+    values["layers"] = tuple(Layer(**item) for item in values.get("layers", [{}]))
+    return StackModel(**values)
+
+
+def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
+    if not np.isfinite([start, stop]).all() or not 2 <= points <= 100 or not start < stop:
+        raise ValueError("Use 2–100 wavelengths with increasing finite limits")
+    wavelengths = np.linspace(start, stop, points)
+    rows = []
+    for wavelength in wavelengths:
+        current = StackModel(**{**asdict(model), "wavelength_um": float(wavelength),
+                                "layers": model.layers})
+        try:
+            convergence = stack_convergence(current)
+            result = convergence["samples"][-1]
+            rows.append({"wavelength_um": float(wavelength),
+                         **{key: result[key] for key in ("R", "T", "A", "R0", "T0")},
+                         "status": "converged" if convergence["converged"]
+                         and convergence["physical_balance_ok"] else "unconverged",
+                         "order_change": convergence["max_change"]})
+        except (ValueError, np.linalg.LinAlgError) as exc:
+            rows.append({"wavelength_um": float(wavelength), "status": str(exc)})
+    return {"rows": rows, "note": "Each point compares multiple Fourier orders; geometry-grid convergence is a separate check."}
+
+
+def make_figure(kind: str, result: dict, title: str, fmt: str) -> bytes:
+    if fmt not in ("svg", "png") or kind not in ("bands", "spectrum", "field", "vertical", "waveguide"):
+        raise ValueError("Unsupported figure type")
+    plt.rcParams.update({"font.size": 11, "axes.spines.top": False,
+                         "axes.spines.right": False, "savefig.dpi": 300})
+    fig, ax = plt.subplots(figsize=(7.2, 4.6), constrained_layout=True)
+    if kind == "spectrum":
+        rows = [row for row in result["rows"] if row.get("status") == "converged"]
+        if not rows:
+            raise ValueError("No computed spectrum points")
+        x = [row["wavelength_um"] for row in rows]
+        for key, color in (("R", "#2666b4"), ("T", "#159467"), ("A", "#d9772d")):
+            ax.plot(x, [row[key] for row in rows], label=key, color=color, linewidth=2)
+        ax.set(xlabel="Vacuum wavelength (µm)", ylabel="Incident power fraction", ylim=(-.03, 1.03))
+        ax.legend(frameon=False, ncol=3)
+    elif kind == "bands":
+        x = np.asarray(result["distance"])
+        for name, color, style in (("TE", "#2666b4", "-"), ("TM", "#d9772d", "--")):
+            for j, band in enumerate(np.asarray(result[name]).T):
+                ax.plot(x, band, color=color, linestyle=style, linewidth=1.3,
+                        label=name if j == 0 else None)
+        ticks = result["ticks"]
+        ax.set_xticks(x[ticks], result["tick_labels"])
+        for tick in x[ticks[1:-1]]:
+            ax.axvline(tick, color="#d0d5dd", linewidth=.8)
+        ax.set(xlabel="Bloch wavevector", ylabel="Normalized frequency  a/λ")
+        ax.legend(frameon=False)
+    elif kind == "waveguide":
+        mode = result["modes"][int(result.get("selected_mode", 0))]
+        z = np.asarray(mode["z_um"])
+        ax.axvspan(0, result["model"]["thickness_um"], color="#e9f3fc", label="Core")
+        ax.plot(z, mode["profile"], color="#1769aa", linewidth=2,
+                label=f'{mode["name"]}: n_eff={mode["n_eff"]:.6f}')
+        ax.set(xlabel="Transverse z (µm)", ylabel=f'Normalized {mode["profile_quantity"]}', ylim=(-.03, 1.05))
+        ax.legend(frameon=False)
+    elif kind == "vertical":
+        component = result.get("selected_component", "E2")
+        allowed = ("E2", "H2", "Ex_abs", "Ey_abs", "Ez_abs", "Hx_abs", "Hy_abs",
+                   "Hz_abs", "Sx", "Sy", "Sz", "energy_proxy", "energy_brillouin",
+                   "loss_density")
+        if component not in allowed:
+            raise ValueError("Unknown vertical-field quantity")
+        values = np.asarray(result[component], dtype=float)
+        zmin, zmax = min(result["z_um"]), max(result["z_um"])
+        # The model and 3D editor store finite layers from physical top to
+        # bottom.  Put depth zero at the top of exported cross sections.
+        extent = (0, 1, zmax, zmin)
+        if component in ("Sx", "Sy", "Sz"):
+            scale = max(float(np.max(np.abs(values))), 1e-12)
+            image = ax.imshow(values, origin="upper", extent=extent, aspect="auto",
+                              cmap="RdBu_r", vmin=-scale, vmax=scale, interpolation="nearest")
+        else:
+            image = ax.imshow(values, origin="upper", extent=extent, aspect="auto",
+                              cmap="magma", interpolation="nearest")
+        fig.colorbar(image, ax=ax, label=component)
+        epsilon = np.asarray(result.get("epsilon_real", []), dtype=float)
+        if epsilon.shape == values.shape and epsilon.size:
+            # Draw actual material transitions from the sampled cross section.
+            # A contour level is placed midway between every distinct epsilon
+            # value, which supports multilayers and patterned inclusions.
+            distinct = np.unique(np.round(epsilon, decimals=10))
+            levels = [(a+b)/2 for a, b in zip(distinct[:-1], distinct[1:])]
+            if levels:
+                coordinate = np.linspace(0, 1, epsilon.shape[1])
+                ax.contour(coordinate, np.asarray(result["z_um"]), epsilon, levels=levels,
+                           colors="#111827", linewidths=.8, linestyles="--")
+                ax.set_ylim(zmax, zmin)
+        ax.set(xlabel="Position along a₁" if result["plane"] == "xz" else "Position along a₂",
+               ylabel="Depth from physical top (µm)")
+    else:
+        component = result.get("selected_component", "intensity")
+        if component not in ("intensity", "Ex_real", "Ey_real", "Ez_real"):
+            raise ValueError("Unknown field component")
+        values = np.asarray(result[component], dtype=float)
+        if component == "intensity":
+            image = ax.imshow(values, origin="lower", extent=(0, 1, 0, 1),
+                              cmap="magma", interpolation="nearest")
+            label = "Relative |E|²"
+        else:
+            scale = max(float(np.max(np.abs(values))), 1e-12)
+            image = ax.imshow(values, origin="lower", extent=(0, 1, 0, 1),
+                              cmap="RdBu_r", vmin=-scale, vmax=scale,
+                              interpolation="nearest")
+            label = "Real " + component.removesuffix("_real") + " (incident phase reference)"
+        fig.colorbar(image, ax=ax, label=label)
+        epsilon = np.asarray(result.get("epsilon_real", []), dtype=float)
+        if epsilon.shape == values.shape and epsilon.size:
+            distinct = np.unique(np.round(epsilon, decimals=10))
+            levels = [(a+b)/2 for a, b in zip(distinct[:-1], distinct[1:])]
+            if levels:
+                ax.contour(epsilon, levels=levels, origin="lower", extent=(0, 1, 0, 1),
+                           colors="#111827", linewidths=.8, linestyles="--")
+        ax.set(xlabel="x / period", ylabel="y / period")
+        ax.set_aspect("equal")
+    ax.set_title(title)
+    output = io.BytesIO()
+    fig.savefig(output, format=fmt, metadata={"Creator": "FMM Research Workbench"})
+    plt.close(fig)
+    return output.getvalue()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, payload: bytes, content_type: str, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._send((ROOT/"index.html").read_bytes(), "text/html; charset=utf-8")
+        elif self.path == "/health":
+            self._send(b'{"status":"ok"}', "application/json")
+        else:
+            self._send(b"Not found", "text/plain", 404)
+
+    def do_POST(self):
+        if not self.path.startswith("/api/"):
+            return self._send(b"Not found", "text/plain", 404)
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= MAX_BODY:
+                raise ValueError("Request size is invalid")
+            data = json.loads(self.rfile.read(length))
+            operation = self.path.removeprefix("/api/")
+            if operation == "solve":
+                model = parse_stack(data["model"])
+                convergence = stack_convergence(model)
+                high_budget = convergence["samples"][-1]["requested_budget"]
+                refined = StackModel(**{**asdict(model), "layers": model.layers,
+                                        "order_budget": high_budget})
+                payload = {"result": solve_stack(refined), "convergence": convergence,
+                           "grid_convergence": grid_convergence(refined),
+                           "model": asdict(model)}
+            elif operation == "spectrum":
+                model = parse_stack(data["model"])
+                payload = spectrum(model, float(data["start"]), float(data["stop"]), int(data["points"]))
+            elif operation == "tmm":
+                model = parse_stack(data["model"])
+                if "start" in data:
+                    start, stop, points = float(data["start"]), float(data["stop"]), int(data["points"])
+                    if not np.isfinite([start, stop]).all() or not 2 <= points <= 100 or start >= stop:
+                        raise ValueError("Use 2–100 wavelengths with increasing finite limits")
+                    rows = []
+                    for wavelength in np.linspace(start, stop, points):
+                        current = StackModel(**{**asdict(model), "layers": model.layers,
+                                                "wavelength_um": float(wavelength)})
+                        result = solve_tmm(current)
+                        rows.append({"wavelength_um": float(wavelength),
+                                     **{key: result[key] for key in ("R", "T", "A")}})
+                    payload = {"rows": rows, "method": "uniform-stack scattering recursion"}
+                else:
+                    payload = solve_tmm(model)
+            elif operation == "field":
+                model = parse_stack(data["model"])
+                layer_index, z_fraction = int(data.get("layer_index", 0)), float(data.get("z_fraction", .5))
+                payload = stack_field(model, layer_index, z_fraction)
+                payload["validation"] = field_validation(model, layer_index, z_fraction)
+            elif operation == "vertical_field":
+                model = parse_stack(data["model"])
+                payload = vertical_field(model, str(data.get("plane", "xz")),
+                    float(data.get("fixed_fraction", .5)),
+                    int(data.get("lateral_points", 81)),
+                    int(data.get("points_per_layer", 25)),
+                    float(data.get("exterior_depth_um", .05)))
+            elif operation == "angle_wavelength":
+                model = parse_stack(data["model"])
+                payload = angle_wavelength_map(model, float(data["wavelength_start"]),
+                    float(data["wavelength_stop"]), int(data["wavelength_points"]),
+                    float(data["theta_start"]), float(data["theta_stop"]),
+                    int(data["theta_points"]), str(data.get("quantity", "R")))
+            elif operation == "kspace":
+                model = parse_stack(data["model"])
+                payload = kspace_map(model, float(data["wavelength_um"]),
+                    float(data["rho_max"]), int(data["points"]),
+                    str(data.get("quantity", "R")))
+            elif operation == "polarization_kspace":
+                model = parse_stack(data["model"])
+                payload = polarization_kspace_map(model, float(data["wavelength_um"]),
+                    float(data["rho_max"]), int(data["points"]),
+                    str(data.get("port", "reflected")), int(data.get("order_m", 0)),
+                    int(data.get("order_n", 0)), float(data.get("min_power", 1e-10)))
+            elif operation == "resonance":
+                model = parse_stack(data["model"])
+                payload = adaptive_resonance(model, float(data["start"]), float(data["stop"]),
+                    str(data.get("quantity", "R")), str(data.get("extremum", "max")),
+                    int(data.get("points", 31)), int(data.get("rounds", 3)))
+            elif operation == "multi_resonance":
+                model = parse_stack(data["model"])
+                payload = adaptive_multi_resonance(model, float(data["start"]), float(data["stop"]),
+                    str(data.get("quantity", "R")), str(data.get("extremum", "both")),
+                    int(data.get("global_points", 101)), int(data.get("refinement_points", 31)),
+                    int(data.get("rounds", 2)), int(data.get("maximum_resonances", 4)),
+                    int(data.get("background_degree", 1)))
+            elif operation == "multi_resonance_sweep":
+                payload = multi_resonance_sweep(parse_stack(data["model"]), str(data["parameter"]),
+                    float(data["start_value"]), float(data["stop_value"]), int(data["parameter_points"]),
+                    float(data["wavelength_start"]), float(data["wavelength_stop"]),
+                    str(data.get("quantity", "R")), str(data.get("extremum", "both")),
+                    int(data.get("global_points", 61)), int(data.get("refinement_points", 21)),
+                    int(data.get("rounds", 1)), int(data.get("maximum_resonances", 4)),
+                    int(data.get("background_degree", 1)))
+            elif operation == "sweep_point":
+                model = parse_stack(data["model"])
+                payload = evaluate_point(model, str(data["x_parameter"]),
+                    float(data["x"]), str(data.get("quantity", "R")),
+                    str(data["y_parameter"]) if data.get("y_parameter") else None,
+                    float(data["y"]) if data.get("y_parameter") else None)
+            elif operation == "bands":
+                band_model = BandModel(**data["model"])
+                if band_model.fourier_order > 7:
+                    raise ValueError("Interactive band Fourier order is capped at 7")
+                payload = solve_bands(band_model)
+                payload["convergence"] = band_convergence(band_model, payload)
+            elif operation == "band_mode":
+                band_model = BandModel(**data["model"])
+                if band_model.fourier_order > 7:
+                    raise ValueError("Interactive band Fourier order is capped at 7")
+                payload = solve_band_mode(band_model, str(data.get("polarization", "TE")),
+                    float(data.get("kx", 0)), float(data.get("ky", 0)),
+                    int(data.get("band", 0)), int(data.get("resolution", 101)))
+            elif operation == "waveguide":
+                payload = solve_waveguide(WaveguideModel(**data["model"]))
+            elif operation == "slab_compare":
+                stack_model = parse_stack(data["stack"])
+                if "core_layer_index" in data:
+                    payload = compare_stack_layer(stack_model, int(data["core_layer_index"]),
+                        str(data.get("polarization", "TE")), float(data["top_n"]),
+                        float(data["bottom_n"]), int(data.get("maximum_order", 2)))
+                else:
+                    payload = slab_phase_match(stack_model,
+                        WaveguideModel(**data["slab"]), int(data.get("maximum_order", 2)))
+            elif operation == "slab_dispersion":
+                payload = dispersion_comparison(parse_stack(data["stack"]),
+                    int(data["core_layer_index"]), str(data.get("polarization", "TE")),
+                    float(data["top_n"]), float(data["bottom_n"]),
+                    int(data.get("maximum_order", 2)), float(data["start"]),
+                    float(data["stop"]), int(data["points"]),
+                    int(data.get("mode_order", 0)))
+            elif operation == "multilayer_modes":
+                payload = solve_multilayer_modes(parse_stack(data["model"]),
+                    str(data.get("polarization", "TE")),
+                    int(data.get("grid_points", 1201)), int(data.get("modes", 8)))
+            elif operation == "tolerance":
+                payload = tolerance_study(parse_stack(data["model"]), data["parameters"],
+                    int(data["samples"]), float(data["start"]), float(data["stop"]),
+                    int(data["points"]), str(data.get("quantity", "R")),
+                    str(data.get("extremum", "max")), int(data.get("seed", 12345)),
+                    data.get("correlation"))
+            elif operation == "research_report":
+                payload = {"markdown": research_report(parse_stack(data["model"]),
+                    software_versions(), str(data.get("title", "Photonics simulation"))[:120])}
+            elif operation == "resonance_fields":
+                payload = resonance_field_report(parse_stack(data["model"]),
+                    float(data["center_um"]), float(data["linewidth_um"]),
+                    str(data.get("plane", "xz")), int(data.get("lateral_points", 41)),
+                    int(data.get("points_per_layer", 15)))
+            elif operation == "resonant_polarization":
+                payload = resonant_polarization(parse_stack(data["model"]),
+                    float(data["center_um"]), float(data["linewidth_um"]),
+                    int(data.get("m", 0)), int(data.get("n", 0)),
+                    str(data.get("port", "reflected")),
+                    float(data.get("sideband_span", 3)))
+            elif operation == "leaky_mode":
+                payload = solve_leaky_mode(parse_stack(data["model"]),
+                    float(data["center_um"]), float(data.get("initial_q", 100)))
+            elif operation == "materials":
+                payload = material_catalog(float(data["wavelength_um"]))
+            elif operation == "material_import":
+                if os.environ.get("PUBLIC_DEMO", "0") == "1":
+                    raise ValueError("Material import is disabled on the shared public demo. Save the CSV and import it in a local installation.")
+                payload = import_material(data["name"], data["source"], data["csv"])
+            elif operation == "measurement":
+                payload = compare_or_fit(parse_stack(data["model"]), data["csv"],
+                                         int(data["layer_index"]), bool(data.get("fit", False)),
+                                         float(data.get("lower_um", .01)),
+                                         float(data.get("upper_um", 2)))
+            elif operation == "multi_fit":
+                payload = multi_parameter_fit(parse_stack(data["model"]), data["datasets"],
+                    data["parameters"], str(data.get("method", "local")),
+                    float(data.get("validation_fraction", .2)),
+                    int(data.get("bootstrap", 0)), int(data.get("seed", 12345)))
+            elif operation == "purcell_estimate":
+                payload = purcell_estimate(**{key: float(value) for key, value in data.items()})
+            elif operation == "dipole_ldos":
+                payload = dipole_ldos(parse_stack(data["model"]),
+                    float(data["distance_um"]), str(data.get("orientation", "isotropic")),
+                    int(data.get("points", 240)), float(data.get("evanescent_limit", 30)),
+                    float(data["collection_na"]) if data.get("collection_na") is not None else None)
+            elif operation == "dipole_ldos_spectrum":
+                payload = dipole_ldos_spectrum(parse_stack(data["model"]),
+                    float(data["start_um"]), float(data["stop_um"]),
+                    int(data.get("wavelength_points", 15)), float(data["distance_um"]),
+                    str(data.get("orientation", "isotropic")), int(data.get("points", 120)),
+                    float(data.get("evanescent_limit", 30)),
+                    float(data["collection_na"]) if data.get("collection_na") is not None else None)
+            elif operation == "polarization_winding":
+                payload = polarization_winding(parse_stack(data["model"]),
+                    float(data["center_um"]), float(data["linewidth_um"]),
+                    float(data["radius"]), int(data.get("loop_points", 12)),
+                    float(data.get("sideband_span", 3)), float(data.get("search_span", 2)),
+                    str(data.get("quantity", "R")), str(data.get("extremum", "max")),
+                    int(data.get("m", 0)), int(data.get("n", 0)),
+                    str(data.get("port", "reflected")))
+            elif operation == "optimize_geometry":
+                payload = optimize_geometry(parse_stack(data["model"]), data["variables"],
+                    data["objectives"], data.get("linear_constraints"),
+                    int(data.get("generations", 4)), int(data.get("population", 5)),
+                    int(data.get("seed", 12345)), bool(data.get("polish", True)))
+            elif operation == "bayesian_spectrum":
+                payload = bayesian_spectrum(parse_stack(data["model"]), data["csv"],
+                    data["parameters"], float(data["noise_sigma"]), int(data.get("draws", 1000)),
+                    int(data.get("burn", 300)), int(data.get("chains", 3)), int(data.get("seed", 12345)))
+            elif operation == "constitutive_response":
+                payload = constitutive_response(**{key: float(value) for key, value in data.items()})
+            elif operation == "vector_modes":
+                payload = solve_vector_modes(**{key: (str(value) if key == "boundary" else
+                    int(value) if key == "modes" else float(value)) for key, value in data.items()})
+            elif operation == "figure":
+                fmt = data.get("format", "svg")
+                figure = make_figure(data["kind"], data["result"],
+                                     str(data.get("title", "Simulation result"))[:120], fmt)
+                return self._send(figure, "image/svg+xml" if fmt == "svg" else "image/png")
+            else:
+                return self._send(b"Not found", "text/plain", 404)
+            payload["software"] = software_versions()
+            self._send(json.dumps(payload, allow_nan=False).encode(), "application/json")
+        except (ValueError, KeyError, TypeError, np.linalg.LinAlgError) as exc:
+            logging.warning("Invalid request for %s: %s", self.path, exc)
+            self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 400)
+        except Exception:
+            logging.exception("Unexpected failure for %s", self.path)
+            self._send(b'{"error":"Unexpected solver error. See workbench.log and the troubleshooting guide."}',
+                       "application/json", 500)
+
+
+def main():
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "8765"))
+    if not 1 <= port <= 65535:
+        raise ValueError("PORT must be between 1 and 65535")
+    address = (host, port)
+    print(f"Open http://{address[0]}:{address[1]}/")
+    ThreadingHTTPServer(address, Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,27 @@
+name: Software bug
+description: Report a reproducible interface or solver failure
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include the exact error message and operation being run.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Attach an exported project JSON with private data removed and list the steps.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Release version, operating system, browser, and local or public deployment.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Paste a short relevant excerpt from workbench.log after removing private paths or data.

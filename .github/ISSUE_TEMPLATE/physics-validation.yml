@@ -1,0 +1,35 @@
+name: Physics or validation issue
+description: Report a discrepancy with theory, an independent solver, experiment, or literature
+title: "[Physics]: "
+labels: [physics, validation]
+body:
+  - type: textarea
+    attributes:
+      label: Physical claim being tested
+      description: Define the observable, units, polarization, angle convention, and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Complete model
+      description: Attach an exported project JSON and identify all material sources and specimens.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reference evidence
+      description: Provide an equation, DOI, open benchmark, or independent-solver result and identify the exact figure or table.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Numerical checks
+      description: Report Fourier order, geometry grid, sampling, energy balance, and changes under refinement.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Observed discrepancy
+      description: Give numerical values and uncertainty where possible rather than only screenshots.
+    validations:
+      required: true

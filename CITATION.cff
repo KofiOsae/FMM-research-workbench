@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If this software supports published work, cite the archived release and the solver and material references recorded in the exported methods report."
+title: "FMM Research Workbench"
+type: software
+authors:
+  - name: "FMM Research Workbench contributors"
+version: 0.1.0
+date-released: 2026-09-26
+license: GPL-3.0-or-later
+repository-code: "https://github.com/KofiOsae/FMM-research-workbench"
+abstract: "A browser-based research workbench for Fourier modal scattering, multilayer optics, photonic bands, guided modes, resonance analysis, fitting, and planar dipole LDOS."
+keywords:
+  - photonics
+  - RCWA
+  - Fourier modal method
+  - guided-mode resonance
+  - photonic crystal
+  - LDOS

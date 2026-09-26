@@ -1,0 +1,5 @@
+numpy==2.5.3
+scipy==1.18.1
+grcwa==0.1.2
+matplotlib==3.11.2
+modesolver @ git+https://github.com/thomas-e-murphy/modesolver.git@6f54c5e82a8de9d7c78a1c86eef2d658b45bc443

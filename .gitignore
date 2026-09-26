@@ -1,0 +1,22 @@
+.venv/
+.mplconfig/
+__pycache__/
+*.pyc
+*.log
+*.pid
+user_materials.json
+.env
+.idea/
+.vscode/
+dist/
+release/
+
+# Local legacy/reference sources reviewed during development. These remain on
+# the maintainer workstation and are not distributed with the web application.
+PWEM_RCWA_Issah/
+matlab/
+ThetaSpektri.py
+
+# One-time maintainer publishing helpers; not part of the released software.
+publish_to_github.ps1
+GITHUB_UPLOAD_GUIDE.md
