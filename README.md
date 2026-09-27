@@ -1,6 +1,6 @@
 # FMM Research Workbench
 
-A local browser interface for periodic photonic structures. Seven workspaces separate scattering and fields, planar guided modes, 2D band structure, measured-data fitting, cavity estimates, materials, and tutorials. A transfer-matrix calculation provides an independent uniform-stack check on the finite-slab FMM solver. The workbench was developed after reviewing the 2018 `ThetaSpektri.py` script and the two MATLAB projects in `PWEM_RCWA_Issah`.
+A local browser interface for periodic photonic structures. Seven workspaces separate scattering and fields, planar guided modes, 2D band structure, measured-data fitting, cavity estimates, materials, and tutorials. A transfer-matrix calculation provides an independent uniform-stack check on the finite-slab FMM solver.
 
 > **Research preview:** results require case-specific convergence, material-provenance checks, and comparison with an analytic result, independent solver, experiment, or literature benchmark before they support a scientific claim.
 
@@ -83,8 +83,6 @@ Read the message above the plot first. Material range errors mean the selected w
 
 ## Relation to the MATLAB files
 
-- `PWEM_RCWA_Issah/BAND_structures-master/PWEM_imp.m` motivated the ring/disk/square geometry and Γ–X–M–Γ path. This workbench uses a fresh Hermitian generalized eigenproblem for TM Ez and TE Hz. The MATLAB file's TE/TM names do not match the standard MPB convention used here.
-- `PWEM_RCWA_Issah/PWEM-TMM_fields-master/RCW_FMM.m` motivated the four-layer dielectric-ring preset and the finite-slab field workflow. Its `ya` coordinate uses `dx` rather than `dy` (line 45), the ring radii are pixels rather than explicit lengths (lines 136–147), and its field plot uses only the real part of the field components. The new preset maps those radii to fractions of the period; it is an interpreted example, not a claim of exact reproduction of its output.
 - The legacy MATLAB files remain untouched. They are not used as trusted numerical references because several geometry and unit choices are ambiguous. The `PWEM_imp.m` square test compares a length to a squared radius (line 45), and the ring/triangle branches use separate discretization choices. These should be corrected before direct cross-code numerical comparison.
 
 ## Reproducibility and publication
