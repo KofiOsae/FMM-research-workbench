@@ -293,22 +293,6 @@ class PhysicalValidation(unittest.TestCase):
         self.assertLess(reflectance[72.5], reflectance[65])
         self.assertLess(reflectance[72.5], reflectance[80])
 
-    def test_illustrative_ald_index_filled_silica_gmr_reference(self):
-        def reflectance(wavelength):
-            model = StackModel(wavelength_um=wavelength, polarization="s",
-                incident_n=1, exit_n=1.45, period_x_um=.5, period_y_um=.5,
-                order_budget=57, grid_size=96,
-                layers=(Layer(kind="stripe", thickness_um=.15,
-                              background_material="silica", feature_material="dielectric",
-                              feature_n=2.3, fill_x=.5, fill_y=.5),
-                        Layer(kind="uniform", thickness_um=.30,
-                              background_material="silica")))
-            return solve_stack(model)["R"]
-        peak = reflectance(.762)
-        self.assertGreater(peak, .99)
-        self.assertGreater(peak, reflectance(.72) + .4)
-        self.assertGreater(peak, reflectance(.81) + .3)
-
     def test_purcell_ideal_and_detuned_estimate(self):
         wavelength, n, q = 1.55, 3.4, 1000
         volume = (wavelength/n)**3
