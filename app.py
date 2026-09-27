@@ -66,10 +66,18 @@ def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
         raise ValueError("Use 2–150 wavelengths with increasing finite limits")
     wavelengths = np.linspace(start, stop, points)
     rows = []
+    uniform_stack = all(layer.kind == "uniform" for layer in model.layers)
     for wavelength in wavelengths:
         current = StackModel(**{**asdict(model), "wavelength_um": float(wavelength),
                                 "layers": model.layers})
         try:
+            if uniform_stack:
+                result = solve_tmm(current)
+                rows.append({"wavelength_um": float(wavelength),
+                             **{key: result[key] for key in ("R", "T", "A")},
+                             "R0": result["R"], "T0": result["T"],
+                             "status": "converged", "order_change": 0.0})
+                continue
             convergence = stack_convergence(current)
             result = convergence["samples"][-1]
             rows.append({"wavelength_um": float(wavelength),
@@ -79,7 +87,12 @@ def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
                          "order_change": convergence["max_change"]})
         except (ValueError, np.linalg.LinAlgError) as exc:
             rows.append({"wavelength_um": float(wavelength), "status": str(exc)})
-    return {"rows": rows, "note": "Each point compares multiple Fourier orders; geometry-grid convergence is a separate check."}
+    method = ("exact uniform-stack transfer matrix" if uniform_stack else
+              "FMM with a Fourier-order check at every wavelength")
+    note = ("Every layer is laterally uniform, so the exact transfer-matrix path was used. "
+            "R0 and T0 equal total R and T because no diffraction orders exist." if uniform_stack else
+            "Each point compares multiple Fourier orders; geometry-grid convergence is a separate check.")
+    return {"rows": rows, "method": method, "note": note}
 
 
 def make_figure(kind: str, result: dict, title: str, fmt: str) -> bytes:

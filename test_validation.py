@@ -14,7 +14,7 @@ from benchmark_mpb import mpb_te_first_band
 from materials import gold_n, silica_n, silicon_n, bk7_n, caf2_n, material_catalog, material_n
 from stack import Layer, StackModel, solve_stack, stack_convergence, stack_field, vertical_field, _grid
 from waveguide import WaveguideModel, solve_waveguide
-from app import make_figure
+from app import make_figure, spectrum
 from tmm import solve_tmm
 from experiment import compare_or_fit, parse_measurement
 from cavity import purcell_estimate
@@ -41,6 +41,21 @@ import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_uniform_spectrum_uses_exact_tmm_path(self):
+        model = StackModel(wavelength_um=.55, theta_deg=45, polarization="p",
+            incident_n=1.7786, exit_n=1,
+            layers=(Layer(kind="uniform", thickness_um=.060,
+                          background_material="silver_rakic"),
+                    Layer(kind="uniform", thickness_um=.035,
+                          background_material="tdbc_pva_015")))
+        result = spectrum(model, .52, .62, 5)
+        self.assertEqual(result["method"], "exact uniform-stack transfer matrix")
+        self.assertEqual(len(result["rows"]), 5)
+        for row in result["rows"]:
+            self.assertEqual(row["status"], "converged")
+            self.assertAlmostEqual(row["R"] + row["T"] + row["A"], 1.0, places=10)
+            self.assertEqual(row["R0"], row["R"])
+
     def test_tdbc_pva_literature_model_produces_two_coupled_branches(self):
         at_exciton = material_n("tdbc_pva_015", 1.239841984/2.10)
         self.assertGreater(at_exciton.real, 0)
