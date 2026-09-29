@@ -7,6 +7,7 @@ import importlib.metadata as metadata
 import json
 import os
 import logging
+import run_jobs
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -62,26 +63,27 @@ def parse_stack(data: dict) -> StackModel:
 
 
 def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
-    if not np.isfinite([start, stop]).all() or not 2 <= points <= 150 or not start < stop:
-        raise ValueError("Use 2–150 wavelengths with increasing finite limits")
+    if not np.isfinite([start, stop]).all() or not 2 <= points <= 2001 or not start < stop:
+        raise ValueError("Use 2–2001 wavelengths with increasing finite limits")
     wavelengths = np.linspace(start, stop, points)
     rows = []
     uniform_stack = all(layer.kind == "uniform" for layer in model.layers)
-    for wavelength in wavelengths:
+    for point_index, wavelength in enumerate(wavelengths):
+        run_jobs.progress(point_index, points, 'Wavelength spectrum')
         current = StackModel(**{**asdict(model), "wavelength_um": float(wavelength),
                                 "layers": model.layers})
         try:
             if uniform_stack:
                 result = solve_tmm(current)
                 rows.append({"wavelength_um": float(wavelength),
-                             **{key: result[key] for key in ("R", "T", "A")},
+                             **{key: result[key] for key in ("R", "T", "A", "r_phase_deg", "t_phase_deg")},
                              "R0": result["R"], "T0": result["T"],
                              "status": "converged", "order_change": 0.0})
                 continue
             convergence = stack_convergence(current)
             result = convergence["samples"][-1]
             rows.append({"wavelength_um": float(wavelength),
-                         **{key: result[key] for key in ("R", "T", "A", "R0", "T0")},
+                         **{key: result[key] for key in ("R", "T", "A", "R0", "T0", "r_phase_deg", "t_phase_deg")},
                          "status": "converged" if convergence["converged"]
                          and convergence["physical_balance_ok"] else "unconverged",
                          "order_change": convergence["max_change"]})
@@ -92,7 +94,8 @@ def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
     note = ("Every layer is laterally uniform, so the exact transfer-matrix path was used. "
             "R0 and T0 equal total R and T because no diffraction orders exist." if uniform_stack else
             "Each point compares multiple Fourier orders; geometry-grid convergence is a separate check.")
-    return {"rows": rows, "method": method, "note": note}
+    return {"rows": rows, "method": method, "note": note,
+            "phase_convention": "Wrapped degrees; uniform TMM uses tangential electric amplitudes at the first/last interfaces. Patterned FMM uses the specular outgoing local s/p component matching incident polarization. Null means undefined. Power convergence does not certify phase convergence."}
 
 
 def make_figure(kind: str, result: dict, title: str, fmt: str) -> bytes:
@@ -208,12 +211,43 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send((ROOT/"index.html").read_bytes(), "text/html; charset=utf-8")
+        elif self.path in ('/workbench.js', '/workbench.css', '/FIRST_STEPS.html'):
+            mime = 'text/javascript' if self.path.endswith('.js') else 'text/css' if self.path.endswith('.css') else 'text/html'
+            self._send((ROOT/self.path[1:]).read_bytes(), mime+'; charset=utf-8')
+        elif self.path.startswith('/api/jobs/'):
+            value = run_jobs.snapshot(self.path.split('/')[-1])
+            self._send(json.dumps(value or {'error':'Job expired or unknown'}).encode(), 'application/json', 200 if value else 404)
         elif self.path == "/health":
-            self._send(b'{"status":"ok"}', "application/json")
+            self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()), 'version':'training-upgrade-1'}).encode(), "application/json")
         else:
             self._send(b"Not found", "text/plain", 404)
 
     def do_POST(self):
+        if self.path.startswith('/api/cancel/'):
+            value = run_jobs.snapshot(self.path.split('/')[-1], cancel=True)
+            return self._send(json.dumps(value or {'error':'Unknown job'}).encode(), 'application/json', 200 if value else 404)
+        if self.headers.get('X-Workbench-Job') == '1':
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= MAX_BODY:
+                    raise ValueError('Request size is invalid')
+                body, path = self.rfile.read(length), self.path
+                json.loads(body)
+                def calculate():
+                    # Reuse the synchronous dispatcher without an internal HTTP request.
+                    handler = object.__new__(Handler)
+                    handler.path, handler.headers, handler.rfile = path, {'Content-Length':str(len(body))}, io.BytesIO(body)
+                    captured = []
+                    handler._send = lambda value, mime, status=200: captured.append((json.loads(value), status))
+                    handler._execute_post()
+                    return captured[0]
+                key = run_jobs.submit(calculate)
+                return self._send(json.dumps({'job_id':key}).encode(), 'application/json', 202)
+            except (ValueError, TypeError) as exc:
+                return self._send(json.dumps({'error':str(exc)}).encode(), 'application/json', 400)
+        return self._execute_post()
+
+    def _execute_post(self):
         if not self.path.startswith("/api/"):
             return self._send(b"Not found", "text/plain", 404)
         try:
@@ -238,15 +272,16 @@ class Handler(BaseHTTPRequestHandler):
                 model = parse_stack(data["model"])
                 if "start" in data:
                     start, stop, points = float(data["start"]), float(data["stop"]), int(data["points"])
-                    if not np.isfinite([start, stop]).all() or not 2 <= points <= 150 or start >= stop:
-                        raise ValueError("Use 2–150 wavelengths with increasing finite limits")
+                    if not np.isfinite([start, stop]).all() or not 2 <= points <= 2001 or start >= stop:
+                        raise ValueError("Use 2–2001 wavelengths with increasing finite limits")
                     rows = []
-                    for wavelength in np.linspace(start, stop, points):
+                    for point_index, wavelength in enumerate(np.linspace(start, stop, points)):
+                        run_jobs.progress(point_index, points, "Transfer-matrix spectrum")
                         current = StackModel(**{**asdict(model), "layers": model.layers,
                                                 "wavelength_um": float(wavelength)})
                         result = solve_tmm(current)
                         rows.append({"wavelength_um": float(wavelength),
-                                     **{key: result[key] for key in ("R", "T", "A")}})
+                                     **{key: result[key] for key in ("R", "T", "A", "r_phase_deg", "t_phase_deg") if key in result}})
                     payload = {"rows": rows, "method": "uniform-stack scattering recursion"}
                 else:
                     payload = solve_tmm(model)

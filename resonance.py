@@ -1,5 +1,7 @@
 """Adaptive spectral feature search and optional Fano fit for finite FMM stacks."""
 from dataclasses import asdict
+from run_jobs import progress
+
 import numpy as np
 from scipy.optimize import curve_fit
 from stack import StackModel, solve_stack, stack_convergence
@@ -26,7 +28,8 @@ def adaptive_resonance(model: StackModel, start: float, stop: float,
     samples = {}
     lo, hi = float(start), float(stop)
     fit_lo, fit_hi = lo, hi
-    for _ in range(rounds):
+    for round_index in range(rounds):
+        progress(round_index, rounds, "Adaptive resonance rounds")
         fit_lo, fit_hi = lo, hi
         xs = np.linspace(lo, hi, points)
         local = []
@@ -100,6 +103,17 @@ def adaptive_resonance(model: StackModel, start: float, stop: float,
                        "wavelength_um": x.tolist(), "predicted": predicted.tolist()}
             except (RuntimeError, ValueError, FloatingPointError) as exc:
                 fit_error = str(exc)
+    if fit is not None:
+        width, center = fit['linewidth_um'], fit['lambda0_um']
+        spacing = float(np.min(np.diff(x)))
+        edge = min(center-x[0], x[-1]-center)
+        if (edge <= max(span*1e-4, width/2) or width >= span*1.999
+                or width < 2*spacing or not np.isfinite(fit['linewidth_sigma_um'])
+                or fit['linewidth_sigma_um'] >= width):
+            fit_error = ('Unresolved fit: the center/linewidth is constrained by the window, '
+                         'undersampled, or uncertain. Widen the interval to include both flanks '
+                         'and background, increase spectral sampling, and refit. Q is withheld.')
+            fit = None
     return {"rows": rows, "quantity": quantity, "extremum": extremum,
             "feature": feature, "fit": fit, "fit_error": fit_error, "convergence": convergence,
             "refined_window_um": [float(fit_lo), float(fit_hi)], "rounds": rounds,

@@ -6,6 +6,16 @@ A local browser interface for periodic photonic structures. Seven workspaces sep
 
 Development was substantially assisted by **ChatGPT Codex by OpenAI**. See [AI_ASSISTANCE.md](AI_ASSISTANCE.md) for the acknowledgement and responsibility statement.
 
+## First use and the training upgrade
+
+Open [the illustrated first-use handbook](FIRST_STEPS.html), or choose **First steps** from the app toolbar. It includes an external MPB benchmark, analytic controls, exact inputs, expected behavior, interpretation, and warning recovery. Use the browser print command for a PDF copy.
+
+The persistent **Run from here** selector starts workspace operations without scrolling. The run monitor shows measured elapsed time, completed work where the solver reports checkpoints, and a remaining-time estimate. Matrix solves without checkpoints show indeterminate progress. Runs are queued one at a time, with at most four active/queued jobs; cancellation is cooperative. Estimates depend on the current machine and settings.
+
+Angle–wavelength and scalar k-space maps allow up to 201 points per axis; polarization maps allow up to 101. Spectra allow up to 2,001 wavelengths. Set **My maximum scan points** to your own smaller limit before running (default 10,000; ceiling 40,401). The vector-mode solver accepts up to 120,000 cells and reports requested cell counts on failure. Higher resolution increases compute and memory requirements; it does not replace convergence checks.
+
+TMM includes coherent reflection/transmission phase; field components and Jones maps offer phase views, masking undefined values. Intensity, total power, LDOS, and incoherent averages do not have a single optical phase. The rectangular solver includes a baseline/half-mesh/larger-padding workflow and comparison history.
+
 ## Start
 
 On Windows with Python 3.12 installed, double-click `start_windows.bat`. It starts the solver in the background, verifies its health, and opens **http://127.0.0.1:8765/**. Closing the launch window no longer stops the solver. Use `stop_windows.bat` when you want to stop it. The first launch creates a virtual environment and installs pinned packages. Alternatively:
@@ -37,8 +47,8 @@ The workspace tabs keep each physical problem separate. **Scattering & fields** 
 | --- | --- | --- | --- |
 | Spectrum | Finite stack of layers, periodic in x and y | 1–64 layers; uniform films, 1D ridges or slots, rectangular/circular pillars or holes, ellipses, and rings; constant or catalog/imported optical constants; s, p, or unpolarized illumination from either side | Total R, T, A=1−R−T and zero-order R/T |
 | Single wavelength | Same finite stack | One vacuum wavelength and incidence direction | R/T/A, diffraction orders, Fourier-order and geometry-grid checks |
-| Angle–wavelength map | Same finite stack scanned over incidence angle and vacuum wavelength at fixed azimuth | 3–41 points per axis; s, p, or unpolarized; R/T/A or zero-order R₀/T₀ | Color map with center-point Fourier check and skipped-cutoff reporting |
-| Incident k-space map | Same finite stack scanned over transverse incident wavevector at one wavelength | Odd 5–41 point grid inside k∥/(nᵢk₀)=sinθ | R/T/A or R₀/T₀ over kx,ky with explicit polarization convention |
+| Angle–wavelength map | Same finite stack scanned over incidence angle and vacuum wavelength at fixed azimuth | 3–201 points per axis; s, p, or unpolarized; R/T/A or zero-order R₀/T₀ | Color map with center-point Fourier check and skipped-cutoff reporting |
+| Incident k-space map | Same finite stack scanned over transverse incident wavevector at one wavelength | Odd 5–201 point grid inside k∥/(nᵢk₀)=sinθ | R/T/A or R₀/T₀ over kx,ky with explicit polarization convention |
 | Field map | Same finite stack | One patterned layer and depth within it | Horizontal x–y map of relative electric intensity and real Ex/Ey/Ez; refinement checks |
 | Transfer matrix | Laterally uniform finite stack; independent scattering recursion | 1–8 uniform layers, absorbing or lossless, s/p/unpolarized, oblique incidence | Specular R/T/A spectrum and direct single-wavelength FMM comparison |
 | Band structure | Infinite, z-invariant, lossless 2D crystal | Square, rectangular, or triangular/hexagonal Bravais lattice; one disk, square, or ring in a constant-index background | TE (Hz) and TM (Ez) frequencies on the standard high-symmetry path, with Fourier-order comparison |

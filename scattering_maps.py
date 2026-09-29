@@ -2,20 +2,22 @@
 
 from dataclasses import asdict
 import math
+from run_jobs import progress
 
 import numpy as np
 
 from stack import StackModel, solve_stack, stack_convergence
+from tmm import solve_tmm
 
 
-QUANTITIES = ("R", "T", "A", "R0", "T0")
+QUANTITIES = ("R", "T", "A", "R0", "T0", "r_phase_deg", "t_phase_deg")
 POLARIZATION_QUANTITIES = ("power", "Ep_real", "Ep_imag", "Es_real", "Es_imag",
-                           "S1", "S2", "S3", "orientation_deg", "ellipticity_deg")
+                           "S1", "S2", "S3", "orientation_deg", "ellipticity_deg", "Ep_phase_deg", "Es_phase_deg")
 
 
 def _validated_quantity(quantity: str) -> str:
     if quantity not in QUANTITIES:
-        raise ValueError("Map quantity must be R, T, A, R0, or T0")
+        raise ValueError("Map quantity must be R, T, A, R0, T0, r_phase_deg, or t_phase_deg")
     return quantity
 
 
@@ -25,19 +27,22 @@ def angle_wavelength_map(model: StackModel, wavelength_start: float,
                          theta_points: int, quantity: str = "R") -> dict:
     """Scan vacuum wavelength and polar incidence angle at fixed azimuth."""
     quantity = _validated_quantity(quantity)
+    if quantity.endswith("phase_deg") and model.polarization == "unpolarized":
+        raise ValueError("Phase requires coherent s or p illumination")
     values = np.asarray([wavelength_start, wavelength_stop, theta_start, theta_stop], float)
     if not np.isfinite(values).all() or wavelength_start <= 0 or wavelength_start >= wavelength_stop:
         raise ValueError("Use positive, increasing finite wavelength limits")
     if not -89 < theta_start < theta_stop < 89:
         raise ValueError("Use increasing signed incidence angles between -89° and +89°")
-    if not 3 <= wavelength_points <= 41 or not 3 <= theta_points <= 41:
-        raise ValueError("Use 3–41 points along each map axis")
+    if not 3 <= wavelength_points <= 201 or not 3 <= theta_points <= 201:
+        raise ValueError("Use 3–201 points along each map axis")
     wavelengths = np.linspace(wavelength_start, wavelength_stop, wavelength_points)
     angles = np.linspace(theta_start, theta_stop, theta_points)
     grid = np.full((theta_points, wavelength_points), np.nan)
     failures = []
     for iy, theta in enumerate(angles):
         for ix, wavelength in enumerate(wavelengths):
+            progress(iy*wavelength_points+ix, theta_points*wavelength_points, "Angle–wavelength map")
             # A negative signed angle is the equivalent positive polar angle
             # with the in-plane propagation direction reversed by 180 degrees.
             signed_phi = model.phi_deg if theta >= 0 else model.phi_deg + 180
@@ -45,7 +50,8 @@ def angle_wavelength_map(model: StackModel, wavelength_start: float,
                                     "wavelength_um": float(wavelength),
                                     "theta_deg": float(abs(theta)), "phi_deg": float(signed_phi)})
             try:
-                grid[iy, ix] = solve_stack(current)[quantity]
+                result = solve_tmm(current) if all(layer.kind == "uniform" for layer in current.layers) else solve_stack(current)
+                grid[iy, ix] = result[quantity] if quantity in result else result[quantity[0]]
             except (ValueError, np.linalg.LinAlgError) as exc:
                 failures.append({"theta_deg": float(theta), "wavelength_um": float(wavelength),
                                  "reason": str(exc)})
@@ -69,17 +75,20 @@ def kspace_map(model: StackModel, wavelength_um: float, rho_max: float,
     Points outside the requested circular numerical aperture are null.
     """
     quantity = _validated_quantity(quantity)
+    if quantity.endswith("phase_deg") and model.polarization == "unpolarized":
+        raise ValueError("Phase requires coherent s or p illumination")
     if not np.isfinite([wavelength_um, rho_max]).all() or wavelength_um <= 0:
         raise ValueError("Wavelength and k-space radius must be finite and positive")
     if not 0 < rho_max < math.sin(math.radians(89)):
         raise ValueError("k-space radius must satisfy 0 < k_parallel/(n_inc k0) < sin(89°)")
-    if not 5 <= points <= 41 or points % 2 == 0:
-        raise ValueError("Use an odd k-space grid from 5 to 41 points")
+    if not 5 <= points <= 201 or points % 2 == 0:
+        raise ValueError("Use an odd k-space grid from 5 to 201 points")
     axis = np.linspace(-rho_max, rho_max, points)
     grid = np.full((points, points), np.nan)
     failures = []
     for iy, v in enumerate(axis):
         for ix, u in enumerate(axis):
+            progress(iy*points+ix, points*points, "Incident wavevector map")
             rho = math.hypot(u, v)
             if rho > rho_max:
                 continue
@@ -89,7 +98,8 @@ def kspace_map(model: StackModel, wavelength_um: float, rho_max: float,
                                     "wavelength_um": float(wavelength_um),
                                     "theta_deg": theta, "phi_deg": phi})
             try:
-                grid[iy, ix] = solve_stack(current)[quantity]
+                result = solve_tmm(current) if all(layer.kind == "uniform" for layer in current.layers) else solve_stack(current)
+                grid[iy, ix] = result[quantity] if quantity in result else result[quantity[0]]
             except (ValueError, np.linalg.LinAlgError) as exc:
                 failures.append({"u": float(u), "v": float(v), "reason": str(exc)})
     center = StackModel(**{**asdict(model), "layers": model.layers,
@@ -121,8 +131,8 @@ def polarization_kspace_map(model: StackModel, wavelength_um: float, rho_max: fl
         raise ValueError("Wavelength, k-space radius, and power threshold must be finite")
     if not 0 < rho_max < math.sin(math.radians(89)):
         raise ValueError("k-space radius must satisfy 0 < k_parallel/(n_inc k0) < sin(89°)")
-    if not 5 <= points <= 21 or points % 2 == 0:
-        raise ValueError("Use an odd polarization grid from 5 to 21 points")
+    if not 5 <= points <= 101 or points % 2 == 0:
+        raise ValueError("Use an odd polarization grid from 5 to 101 points")
     if not 0 <= min_power < 1:
         raise ValueError("Minimum channel power must satisfy 0 <= threshold < 1")
     if abs(order_m) > 20 or abs(order_n) > 20:
@@ -136,6 +146,7 @@ def polarization_kspace_map(model: StackModel, wavelength_um: float, rho_max: fl
     pol_key = port + "_polarization"
     for iy, v in enumerate(axis):
         for ix, u in enumerate(axis):
+            progress(iy*points+ix, points*points, "Incident wavevector map")
             rho = math.hypot(u, v)
             if rho > rho_max:
                 continue
@@ -156,6 +167,8 @@ def polarization_kspace_map(model: StackModel, wavelength_um: float, rho_max: fl
                 for component in ("Ep", "Es"):
                     maps[component + "_real"][iy, ix] = pol[component]["real"]/scale
                     maps[component + "_imag"][iy, ix] = pol[component]["imag"]/scale
+                    if pol[component]["magnitude"] > 1e-10:
+                        maps[component + "_phase_deg"][iy, ix] = pol[component]["phase_deg"]
                 for key in ("S1", "S2", "S3"):
                     maps[key][iy, ix] = pol["normalized"][key]
                 maps["orientation_deg"][iy, ix] = pol["orientation_deg"]

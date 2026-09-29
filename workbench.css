@@ -1,0 +1,19 @@
+/* Persistent study controls: operation, action, progress, then results. */
+.workspace-nav{position:sticky;top:0;z-index:40;background:#f4f8fc;margin-top:0;padding-top:8px;padding-bottom:8px}
+.workspace-nav button{min-width:130px;padding:9px 12px}
+.workspace-nav button small{font-size:11px}
+.operation-nav{position:sticky;top:74px;z-index:39;background:#fff;border-bottom:1px solid #d6e2ed;box-shadow:0 3px 10px #193a5810;max-width:none;padding:10px 24px;display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.operation-nav select{max-width:290px}.operation-nav>div{flex:0 1 290px}.operation-nav>div:has(#resolutionLimit){flex:0 0 115px}.operation-nav button{border:0;border-radius:8px;padding:10px 14px;cursor:pointer}.operation-nav .operation-picker{margin-left:0}
+#quickAction{min-width:190px}#quickRun{background:#155c9c;color:#fff}
+.run-tray{position:fixed;bottom:12px;right:18px;z-index:60;width:min(460px,calc(100vw - 36px));background:#102b46;color:white;border-radius:12px;padding:13px 17px;box-shadow:0 6px 30px #102b4640;font-size:13px}
+.run-tray:empty{display:none}.run-item{padding:8px 0}.run-item+ .run-item{border-top:1px solid #456078}.run-item progress{width:100%;height:9px;accent-color:#57d4bb}.run-item button{float:right;font-size:12px;padding:3px 8px}.run-item small{display:block;color:#c5d8e8;margin-top:5px}
+.card{scroll-margin-top:160px}.card h2{margin-top:0}.card details{margin:10px 0}
+.workbench-help{padding:12px;background:#eef6fc;border-radius:8px;margin:12px 0}.workbench-help a{color:#155c9c}
+.material-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;padding:8px}.material-legend i{display:inline-block;width:14px;height:14px;border:1px solid #345;margin-right:5px;vertical-align:middle}
+#resolutionLimit{width:110px}.operation-nav label{font-size:12px}
+body{padding-bottom:90px}main{max-width:1600px}
+header{padding:16px 24px}header h1{font-size:26px}header p{margin:5px 0}.workspace-nav{max-width:none}.workspace-nav button{min-width:0}.plot-appearance{background:#fff;padding:8px 16px;border-bottom:1px solid #d6e2ed}.plot-appearance>div{padding:12px;max-width:1200px}.plot-appearance summary{cursor:pointer;font-size:13px;color:#155c9c}
+@media(min-width:1100px){main>aside{align-self:start;position:sticky;top:var(--study-top,180px);max-height:calc(100vh - var(--study-top,180px) - 12px);overflow:auto;padding-right:8px}main>section{min-width:0}}
+.scan-estimate{flex-basis:100%;font-size:12px;color:#51677a}
+@media(max-width:650px){.workspace-nav{position:relative}.operation-nav{top:0;padding:8px}.operation-nav select{max-width:240px}.card{scroll-margin-top:200px}}
+@media print{.workspace-nav,.operation-nav,.run-tray{display:none}main>aside{position:static;max-height:none;overflow:visible}}

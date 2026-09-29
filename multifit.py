@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 
+from run_jobs import progress
+
 import numpy as np
 from scipy.optimize import least_squares, differential_evolution
 
@@ -66,8 +68,8 @@ def multi_parameter_fit(model: StackModel, datasets: list[dict], parameters: lis
         raise ValueError("Fit one to five parameters")
     if method not in ("local", "global_then_local"):
         raise ValueError("Fit method must be local or global_then_local")
-    if not 0 <= validation_fraction <= .45 or not 0 <= bootstrap <= 20:
-        raise ValueError("Validation fraction must be 0–0.45 and bootstrap 0–20")
+    if not 0 <= validation_fraction <= .45 or not 0 <= bootstrap <= 200:
+        raise ValueError("Validation fraction must be 0–0.45 and bootstrap 0–200")
     paths, initial, lower, upper = [], [], [], []
     for item in parameters:
         path = str(item["path"])
@@ -187,7 +189,8 @@ def multi_parameter_fit(model: StackModel, datasets: list[dict], parameters: lis
         for d, (wavelengths, channels, measured, pol, _) in enumerate(parsed):
             pred = predict_dataset(fitted_model, d, wavelengths, channels, pol, fit.x)
             base_predictions.append(pred); base_residuals.append(measured-pred)
-        for _ in range(bootstrap):
+        for bootstrap_index in range(bootstrap):
+            progress(bootstrap_index, bootstrap, "Residual bootstrap fits")
             synthetic = []
             for prediction, errors in zip(base_predictions, base_residuals):
                 choice = rng.integers(0, len(errors), len(errors))

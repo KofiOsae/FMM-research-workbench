@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 
+from run_jobs import progress
+
 import numpy as np
 from scipy.integrate import quad_vec
 
@@ -155,6 +157,7 @@ def dipole_ldos(model: StackModel, distance_um: float, orientation: str = "isotr
         **result,
         "orientation": orientation,
         "normalized_decay_rate": selected,
+        "normalized_collected_decay_rate": c_selected,
         "convergence": {"refined_value": refined[orientation],
                         "absolute_change": change, "tolerance": tolerance,
                         "converged": bool(change <= tolerance),
@@ -189,7 +192,8 @@ def dipole_ldos_spectrum(model: StackModel, start_um: float, stop_um: float,
         raise ValueError("Use 3–61 wavelengths for an LDOS spectrum")
     wavelengths = np.linspace(start_um, stop_um, wavelength_points)
     rows = []
-    for wavelength in wavelengths:
+    for point_index, wavelength in enumerate(wavelengths):
+        progress(point_index, len(wavelengths), "LDOS wavelengths")
         result = dipole_ldos(replace(model, wavelength_um=float(wavelength)),
                              distance_um, orientation, points,
                              evanescent_limit, collection_na)

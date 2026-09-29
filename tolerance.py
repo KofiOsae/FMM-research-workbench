@@ -2,6 +2,8 @@
 
 from dataclasses import asdict
 
+from run_jobs import progress
+
 import numpy as np
 
 from stack import StackModel, solve_stack
@@ -44,6 +46,7 @@ def tolerance_study(model: StackModel, parameters: list[dict], samples: int,
     wavelengths = np.linspace(wavelength_start, wavelength_stop, wavelength_points)
     rows, failures = [], []
     for sample in range(samples):
+        progress(sample, samples, "Fabrication tolerance samples")
         current = model
         values = {}
         try:

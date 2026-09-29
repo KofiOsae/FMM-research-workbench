@@ -32,7 +32,11 @@ def _one_polarization(model: StackModel, polarization: str) -> dict:
     R = float(abs(reflection)**2)
     T = float(np.real(q[-1])/np.real(q[0]) * abs(transmission)**2)
     A = float(1-R-T)
-    return {"R": R, "T": T, "A": 0.0 if abs(A) < 1e-12 else A}
+    return {"R": R, "T": T, "A": 0.0 if abs(A) < 1e-12 else A,
+            "r_phase_deg": float(np.angle(reflection, deg=True)) if abs(reflection)>1e-10 else None,
+            "t_phase_deg": float(np.angle(transmission, deg=True)) if abs(transmission)>1e-10 else None,
+            "r": {"real":float(reflection.real), "imag":float(reflection.imag)},
+            "t": {"real":float(transmission.real), "imag":float(transmission.imag)}}
 
 
 def solve_tmm(model: StackModel) -> dict:
@@ -43,7 +47,9 @@ def solve_tmm(model: StackModel) -> dict:
     if model.polarization == "unpolarized":
         s, p = (_one_polarization(model, key) for key in ("s", "p"))
         result = {key: (s[key]+p[key])/2 for key in ("R", "T", "A")}
+        result.update(r_phase_deg=None, t_phase_deg=None, polarization_channels={"s":s,"p":p})
     else:
         result = _one_polarization(model, model.polarization)
     return {**result, "method": "uniform-stack scattering recursion",
+            "phase_convention": "Wrapped degrees of tangential electric-field amplitudes; reference planes are the first and last interfaces, exp(-i omega t). Null at vanishing amplitude or for incoherent unpolarized input; individual s/p channels remain available.",
             "model": asdict(model)}

@@ -48,8 +48,8 @@ def set_parameter(model: StackModel, path: str, value: float) -> StackModel:
 
 
 def sweep_values(start: float, stop: float, points: int) -> np.ndarray:
-    if not np.isfinite([start, stop]).all() or not 2 <= points <= 101 or start >= stop:
-        raise ValueError("Use 2–101 points with finite increasing sweep limits")
+    if not np.isfinite([start, stop]).all() or not 2 <= points <= 201 or start >= stop:
+        raise ValueError("Use 2–201 points with finite increasing sweep limits")
     return np.linspace(start, stop, points)
 
 
@@ -78,8 +78,8 @@ def run_sweep(model: StackModel, path_x: str, start_x: float, stop_x: float,
     """Synchronous reference implementation used by tests and scripted users."""
     xs = sweep_values(start_x, stop_x, points_x)
     ys = [None] if not path_y else sweep_values(float(start_y), float(stop_y), int(points_y))
-    if len(xs)*len(ys) > 500:
-        raise ValueError("A sweep may contain at most 500 points")
+    if len(xs)*len(ys) > 40401:
+        raise ValueError("A sweep may contain at most 40401 points")
     rows = []
     for y in ys:
         for x in xs:

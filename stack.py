@@ -242,13 +242,21 @@ def solve_stack(model: StackModel) -> dict:
     absorption = 1-R-T
     if abs(absorption) < 1e-12:
         absorption = 0.0
+    amplitudes = diffraction_amplitudes(obj, r, t)
+    specular = next((row for row in amplitudes if row['m']==0 and row['n']==0), None)
+    component = 'Es' if model.polarization == 's' else 'Ep'
+    phases = {}
+    for key, port in (('r_phase_deg','reflected'), ('t_phase_deg','transmitted')):
+        value = specular[port+'_polarization'][component] if specular else None
+        phases[key] = value['phase_deg'] if value and value['magnitude']>1e-10 else None
     return {
+        **phases,
         "R": R, "T": T, "A": absorption,
         "R0": float(r[i0]), "T0": float(t[i0]),
         "actual_orders": int(obj.nG),
         "orders": [{"m": int(m), "n": int(n), "R": float(rv), "T": float(tv)}
                    for (m,n),rv,tv in zip(obj.G,r,t) if rv > 1e-8 or tv > 1e-8],
-        "order_amplitudes": diffraction_amplitudes(obj, r, t),
+        "order_amplitudes": amplitudes,
     }
 
 
@@ -264,6 +272,7 @@ def stack_field(model: StackModel, layer_index: int = 0, z_fraction: float = .5)
     intensity = sum(np.abs(component)**2 for component in e)
     p = .5*np.real(np.cross(np.moveaxis(e, 0, -1), np.conj(np.moveaxis(h, 0, -1))))
     return {"intensity": intensity.T.real.tolist(),
+            **{name+"_phase_deg": np.where(np.abs(component.T)>1e-10, np.angle(component.T, deg=True), None).tolist() for name, component in zip(("Ex","Ey","Ez","Hx","Hy","Hz"), (*e,*h))},
             "Ex_real": e[0].T.real.tolist(), "Ey_real": e[1].T.real.tolist(),
             "Ez_real": e[2].T.real.tolist(),
             "Hx_real": h[0].T.real.tolist(), "Hy_real": h[1].T.real.tolist(),
@@ -376,6 +385,7 @@ def vertical_field(model: StackModel, plane: str = "xz", fixed_fraction: float =
                                 "Hx_real", "Hy_real", "Hz_real",
                                 "energy_proxy", "energy_brillouin", "loss_density",
                                 "epsilon_real")}
+    rows.update({name+"_phase_deg": [] for name in ("Ex","Ey","Ez","Hx","Hy","Hz")})
     z_values, layer_numbers = [], []
     energy_materials, energy_valid = [], True
     volume_absorption = []
@@ -405,6 +415,8 @@ def vertical_field(model: StackModel, plane: str = "xz", fixed_fraction: float =
                   "energy_brillouin": .25*(energy_line*e2+h2),
                   "loss_density": np.real(float(obj.normalization)*obj.omega*loss_epsilon*e2),
                   "epsilon_real": np.real(eps_line)}
+        for name, component in zip(("Ex","Ey","Ez","Hx","Hy","Hz"), (*e,*h)):
+            rows[name+"_phase_deg"].append(np.where(np.abs(component)>1e-10, np.angle(component, deg=True), None).tolist())
         for key, value in values.items():
             rows[key].append(np.broadcast_to(np.asarray(value, dtype=float),
                                              (lateral_points,)).tolist())
@@ -509,6 +521,7 @@ def stack_convergence(model: StackModel, budgets=None, tolerance=.01) -> dict:
         item = solve_stack(StackModel(**{**asdict(model), "order_budget": budget,
                                         "layers": model.layers}))
         samples.append({"requested_budget": budget,
+                        "r_phase_deg": item.get('r_phase_deg'), "t_phase_deg": item.get('t_phase_deg'),
                         **{key: item[key] for key in ("R", "T", "A", "R0", "T0", "actual_orders")}})
     a, b = samples[-2:]
     delta = max(abs(a[key]-b[key]) for key in ("R", "T", "A"))

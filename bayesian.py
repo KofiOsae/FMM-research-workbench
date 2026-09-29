@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 from dataclasses import replace
+from run_jobs import progress
+
 import numpy as np
 
 from experiment import parse_measurement
@@ -66,6 +68,7 @@ def bayesian_spectrum(model, csv_text: str, parameters: list[dict], noise_sigma:
         chain_scale=scale.copy()
         x=lower+(upper-lower)*(chain+1)/(chains+1); lp=log_probability(x); rows=[]; accepted=0
         for iteration in range(draws):
+            progress(chain*draws+iteration, chains*draws, "Bayesian draws")
             proposal=x+rng.normal(size=len(x))*chain_scale; pp=log_probability(proposal)
             if np.log(rng.random()) < pp-lp: x,lp,accepted=proposal,pp,accepted+1
             if iteration>=burn: rows.append(x.copy())

@@ -114,6 +114,17 @@ def fit_multi_resonance_spectrum(wavelength_um, values, maximum_resonances=4,
                     "warnings": []})
             warnings = []
             for i, component in enumerate(components):
+                # A line shape whose centre or width is pinned at a fit bound
+                # is not identified by the data.  Covariance alone can look
+                # deceptively small in this case, so flag it explicitly.
+                bound_tolerance = max(2*dx, span*1e-5)
+                if (component["center_um"] - x[0] <= bound_tolerance or
+                        x[-1] - component["center_um"] <= bound_tolerance):
+                    component["resolved"] = False
+                    component["warnings"].append("center reached the fitting-range boundary")
+                if span - component["linewidth_um"] <= bound_tolerance:
+                    component["resolved"] = False
+                    component["warnings"].append("linewidth reached the fitting-range upper bound")
                 if component["linewidth_sigma_um"] > .5*component["linewidth_um"]:
                     component["resolved"] = False
                     component["warnings"].append("linewidth uncertainty exceeds 50%")

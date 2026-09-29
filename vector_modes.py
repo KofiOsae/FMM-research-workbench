@@ -28,8 +28,8 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
     width = core_width_um+2*padding_x_um
     height = padding_bottom_um+core_height_um+padding_top_um
     nx, ny = int(np.ceil(width/mesh_um)), int(np.ceil(height/mesh_um))
-    if min(nx, ny) < 12 or nx*ny > 30000:
-        raise ValueError("Use at least 12 cells per direction and at most 30000 cells; adjust mesh or window")
+    if min(nx, ny) < 12 or nx*ny > 120000:
+        raise ValueError(f"Requested {nx}×{ny} = {nx*ny:,} cells. Use at least 12 per direction and at most 120000 total; increase mesh spacing or reduce padding.")
     dx, dy = width/nx, height/ny
     x = (np.arange(nx)+.5)*dx-width/2
     y = (np.arange(ny)+.5)*dy-padding_bottom_um
@@ -65,6 +65,8 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
             row["fields"][name+"_real"] = np.real(field).tolist()
             row["fields"][name+"_imag"] = np.imag(field).tolist()
             row["fields"][name+"_abs"] = np.abs(field).tolist()
+            row["fields"][name+"_phase_deg"] = np.where(np.abs(field)>1e-10, np.angle(field, deg=True), np.nan).tolist()
+            row["fields"][name+"_phase_deg"] = [[v if np.isfinite(v) else None for v in r] for r in row["fields"][name+"_phase_deg"]]
         rows.append(row)
     rows.sort(key=lambda row: row["n_eff"]["real"], reverse=True)
     return {"x_um": x.tolist(), "y_um": y.tolist(), "epsilon_real": eps.real.tolist(),

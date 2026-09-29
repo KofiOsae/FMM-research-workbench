@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from dataclasses import replace
 
+from run_jobs import progress
+
 import numpy as np
 from scipy.linalg import eigh
 
@@ -112,7 +114,8 @@ def solve_bands(model: BandModel) -> dict:
     reciprocal, _, _ = _lattice(model)
     points, distances, ticks, labels = _path(model)
     te, tm = [], []
-    for kx, ky in points:
+    for point_index, (kx, ky) in enumerate(points):
+        progress(point_index, len(points), "Bloch wavevectors")
         vectors = np.column_stack((mx+kx, my+ky)) @ reciprocal.T
         gx, gy = vectors[:,0], vectors[:,1]
         diagonal = np.diag(gx*gx+gy*gy)
