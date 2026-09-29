@@ -92,6 +92,17 @@ class PhysicalValidation(unittest.TestCase):
                          (fine["mesh"]["ny"], fine["mesh"]["nx"]))
         self.assertGreater(fine["modes"][0]["core_electric_fraction"], .4)
 
+    def test_vector_mode_curved_and_sloped_core_masks(self):
+        ellipse = solve_vector_modes(1.55, .70, .40, 3.47, 1.44, 1.0,
+            .60, .60, .60, .08, 1, 3.3, core_shape="ellipse")
+        trapezoid = solve_vector_modes(1.55, .70, .40, 3.47, 1.44, 1.0,
+            .60, .60, .60, .08, 1, 3.3, core_shape="trapezoid",
+            sidewall_angle_deg=70)
+        self.assertEqual(ellipse["geometry"]["core_shape"], "ellipse")
+        self.assertEqual(trapezoid["geometry"]["core_shape"], "trapezoid")
+        self.assertGreater(ellipse["modes"][0]["n_eff"]["real"], 1.44)
+        self.assertGreater(trapezoid["modes"][0]["core_electric_fraction"], .1)
+
     def test_advanced_constitutive_bulk_limits(self):
         isotropic = constitutive_response(1.55, 1.5, 0, 1.5, 0,
             mu_relative=2, propagation_theta_deg=37, propagation_phi_deg=21)
@@ -117,11 +128,16 @@ class PhysicalValidation(unittest.TestCase):
             targets.append({"wavelength_um": wavelength, "quantity": "R",
                             "goal": "target", "target": solve_stack(true_model)["R"], "weight": 1})
         result = optimize_geometry(base,
-            [{"path": "layer.0.thickness_um", "lower": .16, "upper": .30}],
-            targets, generations=3, population=5, seed=4, polish=True)
+            [{"path": "layer.0.thickness_um", "lower": .16, "upper": .30,
+              "uncertainty_sigma": .002}],
+            targets, generations=3, population=5, seed=4, polish=True,
+            robust_samples=3)
         self.assertLess(abs(result["best_parameters"]["layer.0.thickness_um"]-.23), .015)
         self.assertTrue(result["validated"])
         self.assertEqual(len(result["objective_results"]), 2)
+        self.assertEqual(result["robustness"]["samples"], 3)
+        self.assertGreaterEqual(result["robustness"]["worst_loss"],
+                                result["robustness"]["mean_loss"])
 
     def test_closed_loop_headless_polarization_winding(self):
         phase = np.linspace(0, 2*np.pi, 16, endpoint=False)
@@ -166,11 +182,15 @@ class PhysicalValidation(unittest.TestCase):
         result = bayesian_spectrum(base, csv,
             [{"path": "layer.0.thickness_um", "lower": .18, "upper": .34,
               "prior_mean": .26, "prior_sigma": .06}],
-            noise_sigma=.003, draws=300, burn=100, chains=2, seed=19)
+            noise_sigma=.003, draws=300, burn=100, chains=2, seed=19,
+            noise_correlation=.2)
         estimate = result["parameters"][0]
         self.assertLess(abs(estimate["median"]-.26), .01)
         self.assertLess(estimate["credible_interval_95"][0], .26)
         self.assertGreater(estimate["credible_interval_95"][1], .26)
+        self.assertIn("tail_effective_sample_size", estimate)
+        self.assertEqual(result["posterior_predictive"]["sample_count"], 80)
+        self.assertGreaterEqual(result["posterior_predictive"]["coverage_fraction"], 0)
 
     def test_planar_dipole_ldos_resolves_gold_near_field(self):
         gold = StackModel(wavelength_um=.6, incident_n=1, exit_n=1,

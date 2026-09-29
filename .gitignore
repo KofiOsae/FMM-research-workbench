@@ -5,6 +5,8 @@ __pycache__/
 *.log
 *.pid
 user_materials.json
+.workbench_history.json
+.sweep_checkpoints/
 .env
 .idea/
 .vscode/

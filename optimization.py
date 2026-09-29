@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import numpy as np
 from scipy.optimize import differential_evolution, LinearConstraint
+from run_jobs import progress
 
 from stack import StackModel, solve_stack, stack_convergence, grid_convergence
 from sweep import set_parameter
@@ -13,7 +14,8 @@ from sweep import set_parameter
 def optimize_geometry(model: StackModel, variables: list[dict], objectives: list[dict],
                       linear_constraints: list[dict] | None = None,
                       generations: int = 4, population: int = 5,
-                      seed: int = 12345, polish: bool = True) -> dict:
+                      seed: int = 12345, polish: bool = True,
+                      robust_samples: int = 1, robust_weight: float = .25) -> dict:
     model.validate()
     if not 1 <= len(variables) <= 5:
         raise ValueError("Use one to five design variables")
@@ -21,13 +23,18 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
         raise ValueError("Use one to eight optical objectives")
     if not 1 <= generations <= 20 or not 4 <= population <= 12:
         raise ValueError("Use 1–20 generations and population multiplier 4–12")
-    paths, bounds = [], []
+    if not 1 <= robust_samples <= 12 or not 0 <= robust_weight <= 2:
+        raise ValueError("Use 1–12 robust samples and robustness weight from 0 to 2")
+    paths, bounds, uncertainty_sigma = [], [], []
     for item in variables:
         path, lower, upper = str(item["path"]), float(item["lower"]), float(item["upper"])
         if path in paths or not np.isfinite([lower, upper]).all() or lower >= upper:
             raise ValueError("Design-variable paths must be unique with increasing finite bounds")
         set_parameter(model, path, (lower+upper)/2)
-        paths.append(path); bounds.append((lower, upper))
+        sigma = float(item.get("uncertainty_sigma", 0))
+        if not np.isfinite(sigma) or sigma < 0:
+            raise ValueError("Fabrication uncertainty sigma must be finite and nonnegative")
+        paths.append(path); bounds.append((lower, upper)); uncertainty_sigma.append(sigma)
     normalized_objectives = []
     for item in objectives:
         wavelength = float(item["wavelength_um"]); quantity = str(item["quantity"])
@@ -49,26 +56,40 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
             "lower": None if not np.isfinite(lower) else lower,
             "upper": None if not np.isfinite(upper) else upper})
     evaluations, failures = [], 0
+    rng = np.random.default_rng(seed+7919)
+    robust_offsets = np.zeros((robust_samples, len(paths)))
+    if robust_samples > 1:
+        robust_offsets[1:] = rng.normal(size=(robust_samples-1, len(paths)))*np.asarray(uncertainty_sigma)
     def build(x):
         current = model
         for path, value in zip(paths, x): current = set_parameter(current, path, float(value))
         return current
     def evaluate(x, record=True):
         nonlocal failures
-        current, terms, total = build(x), [], 0.0
-        try:
-            for objective in normalized_objectives:
-                point = StackModel(**{**asdict(current), "layers": current.layers,
-                    "wavelength_um": objective["wavelength_um"]})
-                value = float(solve_stack(point)[objective["quantity"]])
-                raw = -value if objective["goal"] == "max" else value if objective["goal"] == "min" else (value-objective["target"])**2
-                contribution = objective["weight"]*raw
-                total += contribution
-                terms.append({**objective, "value": value, "loss_contribution": contribution})
-        except (ValueError, np.linalg.LinAlgError):
-            failures += 1; total = 1e6; terms = []
+        sample_losses, sample_terms = [], []
+        for offset in robust_offsets:
+            trial = np.clip(np.asarray(x)+offset, np.asarray(bounds)[:,0], np.asarray(bounds)[:,1])
+            current, terms, total = build(trial), [], 0.0
+            try:
+                for objective in normalized_objectives:
+                    point = StackModel(**{**asdict(current), "layers": current.layers,
+                        "wavelength_um": objective["wavelength_um"]})
+                    value = float(solve_stack(point)[objective["quantity"]])
+                    raw = -value if objective["goal"] == "max" else value if objective["goal"] == "min" else (value-objective["target"])**2
+                    contribution = objective["weight"]*raw
+                    total += contribution
+                    terms.append({**objective, "value": value, "loss_contribution": contribution})
+            except (ValueError, np.linalg.LinAlgError):
+                failures += 1; total = 1e6; terms = []
+            sample_losses.append(float(total)); sample_terms.append(terms)
+        total = float(np.mean(sample_losses)+robust_weight*np.std(sample_losses))
+        terms = sample_terms[0]
         if record: evaluations.append({"parameters": {p: float(v) for p,v in zip(paths,x)},
-                                       "loss": float(total), "objectives": terms})
+                                       "loss": total, "objectives": terms,
+                                       "robust_mean_loss": float(np.mean(sample_losses)),
+                                       "robust_std_loss": float(np.std(sample_losses)),
+                                       "robust_worst_loss": float(np.max(sample_losses))})
+        progress(len(evaluations), max(1, generations*population*len(paths)), "Geometry optimization")
         return float(total)
     history = []
     def callback(intermediate_result):
@@ -96,5 +117,10 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
         "evaluations": evaluations, "evaluation_count": int(result.nfev), "failed_evaluations": failures,
         "history": history, "seed": seed, "generations": generations, "population": population,
         "polished": bool(polish), "validation": checks,
+        "robustness":{"samples":robust_samples,"weight":robust_weight,
+                      "uncertainty_sigma":{path:value for path,value in zip(paths,uncertainty_sigma)},
+                      "mean_loss":best_evaluation["robust_mean_loss"],
+                      "std_loss":best_evaluation["robust_std_loss"],
+                      "worst_loss":best_evaluation["robust_worst_loss"]},
         "validated": all(row["fourier_converged"] and row["grid_converged"] for row in checks),
-        "warning": "This bounded stochastic search does not prove a global optimum. Repeat with multiple seeds, wider justified bounds, tolerance analysis, and reserved validation wavelengths."}
+        "warning": "This bounded stochastic search does not prove a global optimum. Robust samples use fixed Gaussian fabrication perturbations clipped to the design bounds. Repeat with multiple seeds, justified distributions, and reserved validation wavelengths."}

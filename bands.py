@@ -133,6 +133,51 @@ def solve_bands(model: BandModel) -> dict:
     }
 
 
+def full_zone_gaps(model: BandModel, points: int = 9) -> dict:
+    """Screen complete TE/TM gaps over one reciprocal primitive cell."""
+    model.validate()
+    if not 5 <= points <= 31 or points % 2 == 0:
+        raise ValueError("Use an odd full-zone grid from 5 to 31 points per reciprocal axis")
+    if model.fourier_order > 7:
+        raise ValueError("Interactive full-zone screening is capped at Fourier order 7")
+    eps = dielectric_grid(model)
+    orders = np.arange(-model.fourier_order, model.fourier_order+1)
+    mx, my = np.meshgrid(orders, orders, indexing="ij"); mx, my = mx.ravel(), my.ravel()
+    eps_conv = _convolution(eps, mx, my); inverse_conv = _convolution(1/eps, mx, my)
+    eps_conv = (eps_conv+eps_conv.conj().T)/2
+    inverse_conv = (inverse_conv+inverse_conv.conj().T)/2
+    reciprocal, _, _ = _lattice(model)
+    axis = np.linspace(-.5, .5, points)
+    values = {"TE": [], "TM": []}
+    total = points*points
+    for index, (kx, ky) in enumerate((x, y) for y in axis for x in axis):
+        progress(index, total, "Full Brillouin-zone screening")
+        vectors = np.column_stack((mx+kx, my+ky)) @ reciprocal.T
+        gx, gy = vectors[:,0], vectors[:,1]
+        diagonal = np.diag(gx*gx+gy*gy)
+        tm = eigh(diagonal, eps_conv, eigvals_only=True, subset_by_index=(0,model.bands-1))
+        matrix = gx[:,None]*inverse_conv*gx[None,:]+gy[:,None]*inverse_conv*gy[None,:]
+        te = eigh(matrix, eigvals_only=True, subset_by_index=(0,model.bands-1))
+        values["TE"].append(np.sqrt(np.maximum(te, 0)))
+        values["TM"].append(np.sqrt(np.maximum(tm, 0)))
+    extrema, gaps = {}, []
+    for polarization in ("TE", "TM"):
+        array = np.asarray(values[polarization]).reshape(points, points, model.bands)
+        minimum, maximum = array.min(axis=(0,1)), array.max(axis=(0,1))
+        extrema[polarization] = {"minimum":minimum.tolist(), "maximum":maximum.tolist()}
+        for band in range(model.bands-1):
+            lower, upper = float(maximum[band]), float(minimum[band+1])
+            if upper > lower:
+                gaps.append({"polarization":polarization,"between_bands":[band+1,band+2],
+                             "lower_a_over_lambda":lower,"upper_a_over_lambda":upper,
+                             "relative_width":2*(upper-lower)/(upper+lower),
+                             "wavelength_um":[model.period_um/upper, model.period_um/lower]})
+    return {"grid_points_per_axis":points,"reduced_k_axis":axis.tolist(),
+            "sampled_reciprocal_cell":"-0.5 ≤ k1,k2 ≤ 0.5; boundary duplicates are retained for audit",
+            "band_extrema":extrema,"complete_sampled_gaps":gaps,
+            "warning":"A sampled complete-gap screen. Repeat with a denser k grid, higher plane-wave order, and material uncertainty before making a complete-gap claim."}
+
+
 def band_convergence(model: BandModel, base_result: dict | None = None,
                      tolerance: float = .01) -> dict:
     base = base_result if base_result is not None else solve_bands(model)

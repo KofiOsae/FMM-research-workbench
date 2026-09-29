@@ -2,13 +2,51 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
 from threading import Lock
-from time import monotonic
+from time import monotonic, time
 from uuid import uuid4
+from pathlib import Path
+import json
 
 _current = ContextVar('calculation_job', default=None)
 _lock = Lock()
 _jobs = {}
 _pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='solver')
+_history_path = Path(__file__).with_name('.workbench_history.json')
+_history_limit = 100
+
+
+def _read_history():
+    try:
+        value = json.loads(_history_path.read_text(encoding='utf-8'))
+        return value if isinstance(value, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _write_history():
+    completed = []
+    for key, job in _jobs.items():
+        if job['status'] not in ('complete', 'failed', 'cancelled'):
+            continue
+        completed.append({
+            'job_id': key, 'operation': job.get('operation', 'calculation'),
+            'status': job['status'], 'created_at': job.get('created_at'),
+            'finished_at': job.get('finished_at'),
+            'elapsed_seconds': max(0., job.get('finished', monotonic())-
+                                   job.get('started', job['created'])),
+            'completed': job.get('completed', 0), 'total': job.get('total', 0),
+            'stage': job.get('stage', ''),
+            'error': (job.get('result') or {}).get('error')
+        })
+    prior = _read_history()
+    known = {item.get('job_id') for item in completed}
+    merged = completed + [item for item in prior if item.get('job_id') not in known]
+    merged.sort(key=lambda item: item.get('finished_at') or item.get('created_at') or 0,
+                reverse=True)
+    try:
+        _history_path.write_text(json.dumps(merged[:_history_limit], indent=2), encoding='utf-8')
+    except OSError:
+        pass
 
 
 def progress(completed, total, stage='Calculating'):
@@ -20,7 +58,7 @@ def progress(completed, total, stage='Calculating'):
             job.update(completed=int(completed), total=int(total), stage=stage)
 
 
-def submit(calculate):
+def submit(calculate, operation='calculation'):
     with _lock:
         # Keep result memory bounded; never evict an active calculation.
         for key in list(_jobs):
@@ -33,7 +71,9 @@ def submit(calculate):
             if old:
                 del _jobs[old]
         key = uuid4().hex
-        job = dict(status='queued', created=monotonic(), completed=0, total=0, stage='Waiting for solver')
+        job = dict(status='queued', created=monotonic(), created_at=time(),
+                   operation=str(operation), completed=0, total=0,
+                   stage='Waiting for solver')
         _jobs[key] = job
 
     def work():
@@ -51,6 +91,9 @@ def submit(calculate):
             if job.get('cancel_requested'):
                 job.update(status='cancelled', result={'error':'Calculation cancelled by user'}, response_status=400)
             job['finished'] = monotonic()
+            job['finished_at'] = time()
+            with _lock:
+                _write_history()
             _current.reset(token)
     _pool.submit(work)
     return key
@@ -69,3 +112,21 @@ def snapshot(key, cancel=False):
     done, total = result['completed'], result['total']
     result['remaining_seconds'] = elapsed*(total-done)/done if done and total > done else None
     return {k:v for k,v in result.items() if k not in ('created','started','finished')}
+
+
+def history(limit=30):
+    """Return recent durable job summaries, newest first."""
+    limit = max(1, min(int(limit), _history_limit))
+    active = []
+    with _lock:
+        for key, job in _jobs.items():
+            if job['status'] in ('queued', 'running'):
+                active.append({'job_id': key, 'operation': job.get('operation'),
+                               'status': job['status'], 'created_at': job.get('created_at'),
+                               'completed': job.get('completed', 0),
+                               'total': job.get('total', 0), 'stage': job.get('stage', '')})
+    active.sort(key=lambda item: item.get('created_at') or 0, reverse=True)
+    completed = _read_history()
+    completed.sort(key=lambda item: item.get('finished_at') or item.get('created_at') or 0,
+                   reverse=True)
+    return (active + completed)[:limit]

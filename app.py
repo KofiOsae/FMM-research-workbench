@@ -18,7 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from bands import BandModel, solve_bands, band_convergence, solve_band_mode
+from bands import BandModel, solve_bands, band_convergence, solve_band_mode, full_zone_gaps
 from stack import (Layer, StackModel, solve_stack, stack_convergence, grid_convergence,
                    stack_field, field_validation, vertical_field)
 from waveguide import WaveguideModel, solve_waveguide
@@ -54,6 +54,39 @@ MAX_BODY = 100_000
 
 def software_versions() -> dict:
     return {name: metadata.version(name) for name in ("numpy", "scipy", "grcwa", "matplotlib")}
+
+
+def method_provenance(operation: str) -> dict:
+    """Machine-readable method references attached to every numerical result."""
+    common = [{"id": "li-1997", "title": "New formulation of the Fourier modal method for crossed surface-relief gratings",
+               "doi": "10.1364/JOSAA.14.002758", "applies_to": "FMM/RCWA scattering and fields"},
+              {"id": "grcwa", "title": "grcwa documentation and source",
+               "url": "https://github.com/weiliangjinca/grcwa", "applies_to": "installed FMM/RCWA implementation"}]
+    groups = {
+        "tmm": [{"id":"yeh-1988", "title":"Optical Waves in Layered Media",
+                 "applies_to":"uniform multilayer transfer matrices"}],
+        "bands": [{"id":"johnson-joannopoulos-2001", "title":"Block-iterative frequency-domain methods for Maxwell equations in a planewave basis",
+                   "doi":"10.1364/OE.8.000173", "applies_to":"plane-wave band eigensolver"}],
+        "band_mode": [{"id":"johnson-joannopoulos-2001", "title":"Block-iterative frequency-domain methods for Maxwell equations in a planewave basis",
+                       "doi":"10.1364/OE.8.000173", "applies_to":"plane-wave band eigenfield"}],
+        "vector_modes": [{"id":"fallahkhair-2008", "title":"Vector finite difference modesolver for anisotropic dielectric waveguides",
+                          "doi":"10.1109/JLT.2008.923643", "applies_to":"full-vector finite-difference modes"}],
+        "dipole_ldos": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
+                         "applies_to":"planar electric-dipole LDOS and collection"}],
+        "dipole_ldos_spectrum": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
+                                  "applies_to":"planar electric-dipole LDOS and collection"}],
+        "bayesian_spectrum": [{"id":"vehtari-2021", "title":"Rank-normalization, folding, and localization: an improved R-hat",
+                               "doi":"10.1214/20-BA1221", "applies_to":"diagnostic target; implementation limitations are reported"}],
+        "leaky_mode": [{"id":"kristensen-2020", "title":"Modes and mode volumes of leaky optical cavities and plasmonic nanoresonators",
+                        "doi":"10.1103/RevModPhys.92.031001", "applies_to":"QNM interpretation limits"}]
+    }
+    fmm_operations = {"solve","spectrum","field","vertical_field","angle_wavelength","kspace",
+                      "polarization_kspace","resonance","multi_resonance","multi_resonance_sweep",
+                      "sweep_point","slab_compare","slab_dispersion","tolerance","resonance_fields",
+                      "resonant_polarization","polarization_winding","optimize_geometry","measurement","multi_fit"}
+    references = (common if operation in fmm_operations else []) + groups.get(operation, [])
+    return {"operation": operation, "references": references,
+            "note": "Citations identify numerical formulations or interpretation standards; they do not certify convergence of this result."}
 
 
 def parse_stack(data: dict) -> StackModel:
@@ -217,6 +250,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith('/api/jobs/'):
             value = run_jobs.snapshot(self.path.split('/')[-1])
             self._send(json.dumps(value or {'error':'Job expired or unknown'}).encode(), 'application/json', 200 if value else 404)
+        elif self.path == '/api/job-history':
+            self._send(json.dumps({'jobs': run_jobs.history()}).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()), 'version':'training-upgrade-1'}).encode(), "application/json")
         else:
@@ -241,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
                     handler._send = lambda value, mime, status=200: captured.append((json.loads(value), status))
                     handler._execute_post()
                     return captured[0]
-                key = run_jobs.submit(calculate)
+                key = run_jobs.submit(calculate, path.removeprefix('/api/'))
                 return self._send(json.dumps({'job_id':key}).encode(), 'application/json', 202)
             except (ValueError, TypeError) as exc:
                 return self._send(json.dumps({'error':str(exc)}).encode(), 'application/json', 400)
@@ -353,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = solve_band_mode(band_model, str(data.get("polarization", "TE")),
                     float(data.get("kx", 0)), float(data.get("ky", 0)),
                     int(data.get("band", 0)), int(data.get("resolution", 101)))
+            elif operation == "full_zone_gaps":
+                payload = full_zone_gaps(BandModel(**data["model"]), int(data.get("points", 9)))
             elif operation == "waveguide":
                 payload = solve_waveguide(WaveguideModel(**data["model"]))
             elif operation == "slab_compare":
@@ -440,15 +477,17 @@ class Handler(BaseHTTPRequestHandler):
                 payload = optimize_geometry(parse_stack(data["model"]), data["variables"],
                     data["objectives"], data.get("linear_constraints"),
                     int(data.get("generations", 4)), int(data.get("population", 5)),
-                    int(data.get("seed", 12345)), bool(data.get("polish", True)))
+                    int(data.get("seed", 12345)), bool(data.get("polish", True)),
+                    int(data.get("robust_samples", 1)), float(data.get("robust_weight", .25)))
             elif operation == "bayesian_spectrum":
                 payload = bayesian_spectrum(parse_stack(data["model"]), data["csv"],
                     data["parameters"], float(data["noise_sigma"]), int(data.get("draws", 1000)),
-                    int(data.get("burn", 300)), int(data.get("chains", 3)), int(data.get("seed", 12345)))
+                    int(data.get("burn", 300)), int(data.get("chains", 3)), int(data.get("seed", 12345)),
+                    float(data.get("noise_correlation", 0)))
             elif operation == "constitutive_response":
                 payload = constitutive_response(**{key: float(value) for key, value in data.items()})
             elif operation == "vector_modes":
-                payload = solve_vector_modes(**{key: (str(value) if key == "boundary" else
+                payload = solve_vector_modes(**{key: (str(value) if key in ("boundary","core_shape") else
                     int(value) if key == "modes" else float(value)) for key, value in data.items()})
             elif operation == "figure":
                 fmt = data.get("format", "svg")
@@ -458,6 +497,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 return self._send(b"Not found", "text/plain", 404)
             payload["software"] = software_versions()
+            payload["provenance"] = method_provenance(operation)
             self._send(json.dumps(payload, allow_nan=False).encode(), "application/json")
         except (ValueError, KeyError, TypeError, np.linalg.LinAlgError) as exc:
             logging.warning("Invalid request for %s: %s", self.path, exc)

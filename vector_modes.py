@@ -15,7 +15,8 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
                        padding_x_um: float = 1., padding_top_um: float = 1.,
                        padding_bottom_um: float = 1., mesh_um: float = .05,
                        modes: int = 2, guess: float | None = None,
-                       boundary: str = "0000") -> dict:
+                       boundary: str = "0000", core_shape: str = "rectangle",
+                       sidewall_angle_deg: float = 90.) -> dict:
     values = np.asarray([wavelength_um, core_width_um, core_height_um, core_n,
         substrate_n, cladding_n, padding_x_um, padding_top_um, padding_bottom_um,
         mesh_um], float)
@@ -25,6 +26,10 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
         raise ValueError("This guided-mode workspace requires core n above both surrounding indices")
     if not 1 <= modes <= 8 or boundary not in ("0000", "EEEE", "MMMM"):
         raise ValueError("Use 1–8 modes and 0000, EEEE, or MMMM boundaries")
+    if core_shape not in ("rectangle", "ellipse", "trapezoid"):
+        raise ValueError("Core shape must be rectangle, ellipse, or trapezoid")
+    if not 20 <= sidewall_angle_deg <= 90:
+        raise ValueError("Sidewall angle must be from 20° to 90°")
     width = core_width_um+2*padding_x_um
     height = padding_bottom_um+core_height_um+padding_top_um
     nx, ny = int(np.ceil(width/mesh_um)), int(np.ceil(height/mesh_um))
@@ -35,7 +40,14 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
     y = (np.arange(ny)+.5)*dy-padding_bottom_um
     xx, yy = np.meshgrid(x, y)
     eps = np.where(yy < 0, substrate_n**2, cladding_n**2).astype(complex)
-    core = (np.abs(xx) <= core_width_um/2) & (yy >= 0) & (yy <= core_height_um)
+    if core_shape == "ellipse":
+        core = (xx/(core_width_um/2))**2+((yy-core_height_um/2)/(core_height_um/2))**2 <= 1
+    elif core_shape == "trapezoid":
+        inset = np.maximum(0, core_height_um-yy)/np.tan(np.deg2rad(sidewall_angle_deg))
+        half_width = np.maximum(0, core_width_um/2-inset)
+        core = (yy >= 0) & (yy <= core_height_um) & (np.abs(xx) <= half_width)
+    else:
+        core = (np.abs(xx) <= core_width_um/2) & (yy >= 0) & (yy <= core_height_um)
     if np.count_nonzero(np.any(core, axis=0)) < 4 or np.count_nonzero(np.any(core, axis=1)) < 4:
         raise ValueError("Resolve the core with at least four cells across both width and height")
     eps[core] = core_n**2
@@ -73,6 +85,7 @@ def solve_vector_modes(wavelength_um: float, core_width_um: float, core_height_u
         "core_mask": core.tolist(), "modes": rows, "mesh": {"dx_um": dx, "dy_um": dy,
             "nx": nx, "ny": ny, "boundary": boundary},
         "geometry": {"core_width_um": core_width_um, "core_height_um": core_height_um,
+            "core_shape": core_shape, "sidewall_angle_deg": sidewall_angle_deg,
             "padding_x_um": padding_x_um, "padding_top_um": padding_top_um,
             "padding_bottom_um": padding_bottom_um,
             "rasterized_core_cells_x": int(np.count_nonzero(np.any(core, axis=0))),

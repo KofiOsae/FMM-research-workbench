@@ -1,5 +1,6 @@
 """Regression checks for the training-driven workbench changes."""
 import json
+import tempfile
 import time
 import unittest
 from dataclasses import replace
@@ -11,9 +12,21 @@ from app import spectrum
 from stack import StackModel, Layer
 from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
+from bands import BandModel, full_zone_gaps
 
 
 class UpgradeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._history_directory = tempfile.TemporaryDirectory()
+        cls._original_history_path = run_jobs._history_path
+        run_jobs._history_path = run_jobs.Path(cls._history_directory.name)/'history.json'
+
+    @classmethod
+    def tearDownClass(cls):
+        run_jobs._history_path = cls._original_history_path
+        cls._history_directory.cleanup()
+
     def model(self):
         return StackModel(incident_n=1, exit_n=1.5, wavelength_um=1,
                           layers=(Layer(kind='uniform', thickness_um=.125,
@@ -39,6 +52,12 @@ class UpgradeTests(unittest.TestCase):
             result=angle_wavelength_map(self.model(),.8,1.2,43,-5,5,3)
         self.assertEqual(np.shape(result['values']),(3,43))
 
+    def test_full_zone_gap_screen(self):
+        result=full_zone_gaps(BandModel(background_n=2,inclusion_n=2,
+            fourier_order=1,grid_size=32,points_per_segment=3,bands=3),5)
+        self.assertEqual(result['grid_points_per_axis'],5)
+        self.assertEqual(result['complete_sampled_gaps'],[])
+
     def wait(self,key):
         deadline=time.monotonic()+3
         while time.monotonic()<deadline:
@@ -56,6 +75,7 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(result['result']['value'],42)
         self.assertEqual(result['completed'],2)
         json.dumps(result,allow_nan=False)
+        self.assertTrue(any(item['status']=='complete' for item in run_jobs.history()))
 
     def test_job_failure(self):
         def work():
@@ -100,6 +120,9 @@ class UpgradeTests(unittest.TestCase):
             self.assertEqual(result['status'],'complete')
             with urlopen(base+'/api/jobs/'+key) as response:
                 self.assertEqual(len(json.load(response)['result']['rows']),151)
+            with urlopen(base+'/api/job-history') as response:
+                jobs=json.load(response)['jobs']
+                self.assertTrue(any(item['job_id']==key and item['operation']=='tmm' for item in jobs))
         finally:
             server.shutdown();server.server_close();thread.join()
 
