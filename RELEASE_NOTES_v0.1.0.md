@@ -14,10 +14,12 @@ FMM Research Workbench is an open-source browser interface for periodic and laye
 - Planar dipole LDOS and objective collection calculations
 - Dispersive material catalog and local measured-material import
 - Project export, publication figures, methods reports, tutorials, and literature references
+- Imported or brush-drawn two-material periodic masks embedded in project files
+- Local-periodic metasurface phase libraries, radial flat-lens assignments, and ring/knot spectral metrics with explicit model boundaries
 
 ## Verification status
 
-The release includes 56 automated physics and regression tests. These cover analytic limits, energy balance, TMM/FMM agreement, material dispersion, field geometry, band benchmarks, guided modes, resonance analysis, uncertainty workflows, and planar LDOS normalization.
+The release includes 69 automated physics and regression tests. These cover analytic limits, energy balance, TMM/FMM agreement, material dispersion, field geometry, imported-mask orientation, band benchmarks, guided modes, resonance metrics, uncertainty workflows, and planar LDOS normalization.
 
 Passing tests and numerical convergence do not validate every user-defined structure. Research claims require case-specific convergence, correct material provenance, and comparison with suitable independent evidence. See `VALIDATION.md` and `RESEARCH_READINESS.md`.
 

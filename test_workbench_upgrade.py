@@ -111,6 +111,8 @@ class UpgradeTests(unittest.TestCase):
         try:
             with urlopen(base+'/workbench.js') as response:
                 self.assertIn(b'Run from here',response.read())
+            with urlopen(base+'/METASURFACE_GUIDE.html') as response:
+                self.assertIn(b'Flat-lens design', response.read())
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:

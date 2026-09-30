@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import base64
+import binascii
 
 import grcwa
 import numpy as np
@@ -12,7 +14,7 @@ from materials import material_n, material_energy_terms, MATERIAL_INFO
 
 @dataclass(frozen=True)
 class Layer:
-    kind: str = "rectangle"  # uniform, stripe/slot, rectangle/hole, disk/pillar, ellipse, ring
+    kind: str = "rectangle"  # built-in primitive, uniform film, or imported custom_mask
     thickness_um: float = 0.12
     background_material: str = "dielectric"  # constant n or named optical material
     background_n: float = 1.0
@@ -23,13 +25,19 @@ class Layer:
     inner_radius: float = 0.10  # ring inner radius / period
     offset_x: float = 0.0  # feature-center shift / first lattice coordinate
     offset_y: float = 0.0  # feature-center shift / second lattice coordinate
+    # Binary imported unit-cell bitmap. Bytes are row-major from the displayed
+    # top-left; a nonzero byte selects feature_material. The bitmap is resampled
+    # with nearest-neighbour sampling onto the RCWA factorization grid.
+    custom_mask_width: int = 0
+    custom_mask_height: int = 0
+    custom_mask_base64: str = ""
 
     def validate(self) -> None:
         numbers = [value for value in asdict(self).values() if isinstance(value, (float, int))]
         if not all(np.isfinite(value) for value in numbers):
             raise ValueError("Layer values must be finite")
         if self.kind not in ("uniform", "stripe", "slot", "rectangle", "rectangular_hole",
-                             "disk", "pillar", "circular_hole", "ellipse", "ring"):
+                             "disk", "pillar", "circular_hole", "ellipse", "ring", "custom_mask"):
             raise ValueError("Unsupported layer shape")
         def known(value: str) -> bool:
             return value == "dielectric" or value in MATERIAL_INFO or value.startswith("custom:")
@@ -45,6 +53,17 @@ class Layer:
             raise ValueError("Circular-feature radius must be less than half the period")
         if self.kind == "ring" and not 0 < self.inner_radius < self.fill_x:
             raise ValueError("Ring inner radius must lie inside the outer radius")
+        if self.kind == "custom_mask":
+            if not 8 <= self.custom_mask_width <= 256 or not 8 <= self.custom_mask_height <= 256:
+                raise ValueError("Imported masks must be 8–256 pixels per axis")
+            try:
+                raw = base64.b64decode(self.custom_mask_base64, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise ValueError("Imported mask data is not valid base64") from exc
+            if len(raw) != self.custom_mask_width * self.custom_mask_height:
+                raise ValueError("Imported mask dimensions do not match its pixel data")
+            if not raw or min(raw) == max(raw):
+                raise ValueError("Imported mask must contain both background and feature pixels")
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,17 @@ class StackModel:
 
 
 def _mask(layer: Layer, model: StackModel) -> np.ndarray:
+    if layer.kind == "custom_mask":
+        raw = base64.b64decode(layer.custom_mask_base64)
+        image = np.frombuffer(raw, dtype=np.uint8).reshape(
+            layer.custom_mask_height, layer.custom_mask_width)
+        # image rows are v (top to bottom), columns are u. RCWA arrays use
+        # (u, v), hence the transpose after sampling.
+        columns = np.minimum((np.arange(model.grid_size) * layer.custom_mask_width
+                              / model.grid_size).astype(int), layer.custom_mask_width - 1)
+        rows = np.minimum((np.arange(model.grid_size) * layer.custom_mask_height
+                           / model.grid_size).astype(int), layer.custom_mask_height - 1)
+        return (image[np.ix_(rows, columns)] > 127).T
     u = (np.arange(model.grid_size) + .5)/model.grid_size - .5
     x, y = np.meshgrid(u, u, indexing="ij")
     x = (x-layer.offset_x+.5) % 1-.5

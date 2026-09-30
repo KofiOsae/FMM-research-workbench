@@ -1,6 +1,7 @@
 """Physical regression checks. Run: .venv/Scripts/python -m unittest -v."""
 
 import math
+import base64
 import unittest
 import tempfile
 from pathlib import Path
@@ -12,7 +13,7 @@ from scipy.optimize import brentq
 from bands import BandModel, solve_bands, solve_band_mode
 from benchmark_mpb import mpb_te_first_band
 from materials import gold_n, silica_n, silicon_n, bk7_n, caf2_n, material_catalog, material_n
-from stack import Layer, StackModel, solve_stack, stack_convergence, stack_field, vertical_field, _grid
+from stack import Layer, StackModel, solve_stack, stack_convergence, stack_field, vertical_field, _grid, _mask
 from waveguide import WaveguideModel, solve_waveguide
 from app import make_figure, spectrum
 from tmm import solve_tmm
@@ -37,10 +38,32 @@ from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
 from polarization_winding import _charge_from_angles
 from optimization import optimize_geometry
+from resonator_metrics import resonator_metrics
 import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_custom_mask_resamples_with_documented_orientation(self):
+        source = bytearray(8 * 8)
+        source[0] = 255
+        source[7] = 255
+        layer = Layer(kind="custom_mask", custom_mask_width=8,
+                      custom_mask_height=8,
+                      custom_mask_base64=base64.b64encode(source).decode())
+        model = StackModel(grid_size=16, layers=(layer,))
+        mask = _mask(layer, model)
+        self.assertEqual(mask.shape, (16, 16))
+        self.assertTrue(mask[0, 0])
+        self.assertTrue(mask[-1, 0])
+        self.assertFalse(mask[0, -1])
+
+    def test_resonator_metrics_match_definitions(self):
+        result = resonator_metrics(1.55, 1.55e-6, 1.5, 3000,
+                                   transmission_minimum=.25)
+        self.assertAlmostEqual(result["loaded_q"], 1e6)
+        self.assertAlmostEqual(result["estimated_fsr_um"], 1.55**2/(1.5*3000))
+        self.assertEqual(len(result["coupling_candidates"]), 2)
+
     def test_uniform_spectrum_uses_exact_tmm_path(self):
         model = StackModel(wavelength_um=.55, theta_deg=45, polarization="p",
             incident_n=1.7786, exit_n=1,

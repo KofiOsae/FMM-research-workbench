@@ -44,12 +44,14 @@ from optimization import optimize_geometry
 from bayesian import bayesian_spectrum
 from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
+from metasurface import phase_library_and_lens
+from resonator_metrics import resonator_metrics
 
 
 ROOT = Path(__file__).parent
 logging.basicConfig(filename=ROOT / "workbench.log", level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
-MAX_BODY = 100_000
+MAX_BODY = 2_000_000  # imported 256×256 masks plus project metadata
 
 
 def software_versions() -> dict:
@@ -81,7 +83,7 @@ def method_provenance(operation: str) -> dict:
                         "doi":"10.1103/RevModPhys.92.031001", "applies_to":"QNM interpretation limits"}]
     }
     fmm_operations = {"solve","spectrum","field","vertical_field","angle_wavelength","kspace",
-                      "polarization_kspace","resonance","multi_resonance","multi_resonance_sweep",
+                      "polarization_kspace","resonance","multi_resonance","multi_resonance_sweep","metasurface_phase_library",
                       "sweep_point","slab_compare","slab_dispersion","tolerance","resonance_fields",
                       "resonant_polarization","polarization_winding","optimize_geometry","measurement","multi_fit"}
     references = (common if operation in fmm_operations else []) + groups.get(operation, [])
@@ -244,7 +246,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send((ROOT/"index.html").read_bytes(), "text/html; charset=utf-8")
-        elif self.path in ('/workbench.js', '/workbench.css', '/FIRST_STEPS.html'):
+        elif self.path in ('/workbench.js', '/workbench.css', '/FIRST_STEPS.html',
+                           '/METASURFACE_GUIDE.html'):
             mime = 'text/javascript' if self.path.endswith('.js') else 'text/css' if self.path.endswith('.css') else 'text/html'
             self._send((ROOT/self.path[1:]).read_bytes(), mime+'; charset=utf-8')
         elif self.path.startswith('/api/jobs/'):
@@ -489,6 +492,18 @@ class Handler(BaseHTTPRequestHandler):
             elif operation == "vector_modes":
                 payload = solve_vector_modes(**{key: (str(value) if key in ("boundary","core_shape") else
                     int(value) if key == "modes" else float(value)) for key, value in data.items()})
+            elif operation == "metasurface_phase_library":
+                payload = phase_library_and_lens(parse_stack(data["model"]),
+                    str(data["parameter"]), float(data["start"]), float(data["stop"]),
+                    int(data["points"]), str(data.get("port", "transmitted")),
+                    float(data["lens_radius_um"]), float(data["focal_length_um"]),
+                    int(data.get("radial_points", 101)), float(data.get("minimum_power", 0)))
+            elif operation == "resonator_metrics":
+                payload = resonator_metrics(float(data["wavelength_um"]),
+                    float(data["linewidth_um"]), float(data["group_index"]),
+                    float(data["round_trip_length_um"]),
+                    None if data.get("measured_fsr_um") in (None, "") else float(data["measured_fsr_um"]),
+                    None if data.get("transmission_minimum") in (None, "") else float(data["transmission_minimum"]))
             elif operation == "figure":
                 fmt = data.get("format", "svg")
                 figure = make_figure(data["kind"], data["result"],
