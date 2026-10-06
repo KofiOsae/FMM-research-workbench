@@ -327,7 +327,45 @@
     }
     ctx.putImageData(image,0,0);return canvas;
   }
-  function drawImportedMasks(){const c=document.getElementById('structure'),g=c.getContext('2d'),layers=layerValues();if(!layers.some(layer=>layer.kind==='custom_mask'))return;const heights=layers.map(layer=>Math.max(26,Math.min(70,Number(layer.thickness_um)*170))),scale=Math.min(1,245/heights.reduce((a,b)=>a+b,0));for(let i=0;i<heights.length;i++)heights[i]*=scale;const cellAngle=number('lattice_angle_deg')*Math.PI/180,viewAngle=structureView.azimuth*Math.PI/180,elevation=structureView.elevation*Math.PI/180,p=(x,y,z)=>{const X=x+Math.cos(cellAngle)*y,Y=Math.sin(cellAngle)*y,cx=(1+Math.cos(cellAngle))/2,cy=Math.sin(cellAngle)/2,dx=X-cx,dy=Y-cy,xr=Math.cos(viewAngle)*dx-Math.sin(viewAngle)*dy,yr=Math.sin(viewAngle)*dx+Math.cos(viewAngle)*dy,v=structureView.zoom;return[390+v*300*xr,285+v*(180*Math.sin(elevation)*yr-Math.cos(elevation)*z)]};let z=0;for(let i=layers.length-1;i>=0;i--){const layer=layers[i],z1=z+heights[i];if(layer.kind==='custom_mask'){const bitmap=maskCanvas(layer,materialColor(layer.feature_material,layer.feature_n));if(bitmap){const p00=p(0,0,z1+.6),p10=p(1,0,z1+.6),p01=p(0,1,z1+.6);g.save();g.imageSmoothingEnabled=false;g.globalAlpha=.96;g.setTransform((p10[0]-p00[0])/bitmap.width,(p10[1]-p00[1])/bitmap.width,(p01[0]-p00[0])/bitmap.height,(p01[1]-p00[1])/bitmap.height,p00[0],p00[1]);g.drawImage(bitmap,0,0);g.restore()}}z=z1}const selected=Math.min(layers.length-1,Math.max(0,Number(document.getElementById('previewLayer')?.value||1)-1)),layer=layers[selected];if(layer?.kind==='custom_mask'){const bitmap=maskCanvas(layer,materialColor(layer.feature_material,layer.feature_n));if(bitmap){g.save();g.imageSmoothingEnabled=false;g.drawImage(bitmap,770,135,180,180);g.restore()}}document.getElementById('structureCaption').textContent+=' Imported masks are rendered from the exact saved pixels; their vertical sidewalls remain a schematic extrusion.'}
+  function maskBoundarySegments(layer){
+    const w=Number(layer.custom_mask_width),h=Number(layer.custom_mask_height),bytes=base64ToBytes(layer.custom_mask_base64);
+    if(!w||!h||!bytes||bytes.length!==w*h)return [];
+    const feature=(x,y)=>bytes[((y+h)%h)*w+(x+w)%w]>127,segments=[];
+    const runs=(count,test,make)=>{let start=null;for(let i=0;i<=count;i++){const active=i<count&&test(i);if(active&&start===null)start=i;if(!active&&start!==null){segments.push(make(start,i));start=null}}};
+    // Internal material boundaries, including a periodic seam only when the
+    // pixels on opposite cell edges differ.
+    for(let y=0;y<h;y++)runs(w,x=>feature(x,y-1)!==feature(x,y),(a,b)=>[a/w,y/h,b/w,y/h]);
+    for(let x=0;x<w;x++)runs(h,y=>feature(x-1,y)!==feature(x,y),(a,b)=>[x/w,a/h,x/w,b/h]);
+    // Feature-colored patches on the four cut faces of the displayed unit
+    // cell. These are cutaway faces, not additional physical boundaries.
+    runs(w,x=>feature(x,0),(a,b)=>[a/w,0,b/w,0]);
+    runs(w,x=>feature(x,h-1),(a,b)=>[a/w,1,b/w,1]);
+    runs(h,y=>feature(0,y),(a,b)=>[0,a/h,0,b/h]);
+    runs(h,y=>feature(w-1,y),(a,b)=>[1,a/h,1,b/h]);
+    return segments;
+  }
+  function previewRgb(color){const probe=document.createElement('canvas').getContext('2d');probe.fillStyle=color;probe.fillRect(0,0,1,1);return probe.getImageData(0,0,1,1).data}
+  function drawImportedMasks(){
+    const c=document.getElementById('structure'),g=c.getContext('2d'),layers=layerValues();if(!layers.some(layer=>layer.kind==='custom_mask'))return;
+    const heights=layers.map(layer=>Math.max(26,Math.min(70,Number(layer.thickness_um)*170))),scale=Math.min(1,245/heights.reduce((a,b)=>a+b,0));for(let i=0;i<heights.length;i++)heights[i]*=scale;
+    const cellAngle=number('lattice_angle_deg')*Math.PI/180,viewAngle=structureView.azimuth*Math.PI/180,elevation=structureView.elevation*Math.PI/180,p=(x,y,z)=>{const X=x+Math.cos(cellAngle)*y,Y=Math.sin(cellAngle)*y,cx=(1+Math.cos(cellAngle))/2,cy=Math.sin(cellAngle)/2,dx=X-cx,dy=Y-cy,xr=Math.cos(viewAngle)*dx-Math.sin(viewAngle)*dy,yr=Math.sin(viewAngle)*dx+Math.cos(viewAngle)*dy,v=structureView.zoom;return[390+v*300*xr,285+v*(180*Math.sin(elevation)*yr-Math.cos(elevation)*z)]};
+    let z=0;
+    for(let i=layers.length-1;i>=0;i--){
+      const layer=layers[i],z1=z+heights[i];
+      if(layer.kind==='custom_mask'){
+        const featureColor=materialColor(layer.feature_material,layer.feature_n),rgb=previewRgb(featureColor),wallColor=`rgba(${Math.round(rgb[0]*.62)},${Math.round(rgb[1]*.62)},${Math.round(rgb[2]*.62)},.84)`;
+        for(const [x0,y0,x1,y1] of maskBoundarySegments(layer)){
+          const points=[p(x0,y0,z),p(x1,y1,z),p(x1,y1,z1+.6),p(x0,y0,z1+.6)];g.beginPath();points.forEach((point,j)=>j?g.lineTo(...point):g.moveTo(...point));g.closePath();g.fillStyle=wallColor;g.fill();g.strokeStyle='rgba(38,55,72,.72)';g.lineWidth=.8;g.stroke();
+        }
+        const bitmap=maskCanvas(layer,featureColor);
+        if(bitmap){const p00=p(0,0,z1+.8),p10=p(1,0,z1+.8),p01=p(0,1,z1+.8);g.save();g.imageSmoothingEnabled=false;g.globalAlpha=.98;g.setTransform((p10[0]-p00[0])/bitmap.width,(p10[1]-p00[1])/bitmap.width,(p01[0]-p00[0])/bitmap.height,(p01[1]-p00[1])/bitmap.height,p00[0],p00[1]);g.drawImage(bitmap,0,0);g.restore()}
+      }
+      z=z1;
+    }
+    const selected=Math.min(layers.length-1,Math.max(0,Number(document.getElementById('previewLayer')?.value||1)-1)),layer=layers[selected];
+    if(layer?.kind==='custom_mask'){const bitmap=maskCanvas(layer,materialColor(layer.feature_material,layer.feature_n));if(bitmap){g.save();g.imageSmoothingEnabled=false;g.drawImage(bitmap,770,135,180,180);g.restore()}}
+    document.getElementById('structureCaption').textContent+=' Imported masks use the exact saved top pixels and are extruded through the entered layer thickness; displayed thickness is scaled for readability.';
+  }
   renderStructure=function(){overviewRender();drawImportedMasks()};renderStructure();
   const priorShowWorkspace=showWorkspace;showWorkspace=function(name){priorShowWorkspace(name);metaCard.hidden=name!=='sweeps';knotCard.hidden=name!=='cavity';refreshOperationNavigator(name)};metaCard.hidden=activeWorkspace!=='sweeps';knotCard.hidden=activeWorkspace!=='cavity';
   refreshActions();

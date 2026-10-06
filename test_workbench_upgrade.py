@@ -116,6 +116,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'materialPreviewColors',script)
                 self.assertIn(b'periodic pixel-run screen',script)
                 self.assertIn(b'Export SVG',script)
+                self.assertIn(b'maskBoundarySegments',script)
+                self.assertIn(b'extruded through the entered layer thickness',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 self.assertIn(b'Flat-lens design', response.read())
             with urlopen(base+'/') as response:
