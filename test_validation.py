@@ -651,6 +651,25 @@ class PhysicalValidation(unittest.TestCase):
         self.assertTrue(all(row["feature_value"] >= 0 for row in result["rows"]))
         self.assertEqual(len(result["sensitivities"]), 3)
 
+    def test_tolerance_rejects_mean_outside_bounds(self):
+        model = StackModel(order_budget=9, grid_size=24,
+            layers=(Layer(kind="uniform", thickness_um=.2,
+                          background_material="dielectric", background_n=2),))
+        with self.assertRaisesRegex(ValueError, "mean 1.4 lies outside its bounds 0.12–0.18"):
+            tolerance_study(model, [{"path":"period_x_um", "mean":1.4,
+                "sigma":.005, "lower":.12, "upper":.18}], 5, .8, 1.0, 7)
+
+    def test_tolerance_explains_all_zero_diffraction_order(self):
+        model = StackModel(wavelength_um=1.4, incident_n=1, exit_n=1,
+            period_x_um=.18, period_y_um=.18, order_budget=9, grid_size=24,
+            layers=(Layer(kind="stripe", thickness_um=.2,
+                          background_material="air", feature_material="dielectric",
+                          feature_n=2, fill_x=.45, fill_y=.5),))
+        with self.assertRaisesRegex(ValueError, r"Selected order \(-1,0\) has zero"):
+            tolerance_study(model, [{"path":"period_x_um", "mean":.18,
+                "sigma":.001, "lower":.17, "upper":.19}], 5, 1.3, 1.45, 7,
+                quantity="R_order", order_m=-1, order_n=0)
+
     def test_research_report_contains_reproducibility_fields(self):
         model = StackModel(layers=(Layer(kind="uniform", thickness_um=.2,
                                          background_material="silica"),))

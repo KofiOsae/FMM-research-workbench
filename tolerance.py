@@ -32,6 +32,13 @@ def tolerance_study(model: StackModel, parameters: list[dict], samples: int,
     for item in parameters:
         if not item.get("path") or not np.isfinite(float(item.get("sigma", 0))) or float(item["sigma"]) <= 0:
             raise ValueError("Every uncertain parameter needs a path and positive sigma")
+        mean = float(item.get("mean", np.nan))
+        lower = float(item.get("lower", -np.inf))
+        upper = float(item.get("upper", np.inf))
+        if not np.isfinite(mean) or np.isnan(lower) or np.isnan(upper) or lower > upper:
+            raise ValueError(f"{item['path']} needs a finite mean and valid lower/upper bounds")
+        if not lower <= mean <= upper:
+            raise ValueError(f"{item['path']} mean {mean:g} lies outside its bounds {lower:g}–{upper:g}; correct the row before running")
     rng = np.random.default_rng(seed)
     count = len(parameters)
     corr = np.eye(count) if correlation is None else np.asarray(correlation, dtype=float)
@@ -96,6 +103,9 @@ def tolerance_study(model: StackModel, parameters: list[dict], samples: int,
     if len(rows) < 3:
         reason = failures[0]["reason"] if failures else "unknown numerical failure"
         raise ValueError(f"Fewer than three tolerance samples completed; first failure: {reason}")
+    if quantity in ("R_order", "T_order") and extremum == "max" \
+            and max(row["feature_value"] for row in rows) <= 1e-12:
+        raise ValueError(f"Selected order ({order_m},{order_n}) has zero far-field {quantity[0]} across every completed sample. Check period bounds, wavelength range, order indices, and whether this order is propagating before rerunning.")
     feature_wavelength = np.asarray([row["feature_wavelength_um"] for row in rows])
     feature_value = np.asarray([row["feature_value"] for row in rows])
     summary = {}
@@ -121,8 +131,10 @@ def tolerance_study(model: StackModel, parameters: list[dict], samples: int,
     for item in parameters:
         x = np.asarray([row["parameters"][item["path"]] for row in rows])
         for target, y in sensitivity_targets:
-            slope = float(np.polyfit(x, y, 1)[0]) if np.std(x) > 0 else 0.0
-            correlation = float(np.corrcoef(x, y)[0, 1]) if np.std(x) > 0 and np.std(y) > 0 else 0.0
+            x_varies = np.ptp(x) > 1e-12*max(1.0, float(np.max(np.abs(x))))
+            y_varies = np.ptp(y) > 1e-12*max(1.0, float(np.max(np.abs(y))))
+            slope = float(np.polyfit(x, y, 1)[0]) if x_varies and y_varies else 0.0
+            correlation = float(np.corrcoef(x, y)[0, 1]) if x_varies and y_varies else 0.0
             sensitivities.append({"parameter": item["path"], "target": target,
                                   "linear_slope": slope, "pearson_r": correlation})
     return {"rows": rows, "failures": failures, "summary": summary,
