@@ -635,6 +635,22 @@ class PhysicalValidation(unittest.TestCase):
         self.assertIn("p95", first["summary"]["feature_wavelength_um"])
         self.assertEqual(len(first["sensitivities"]), 2)
 
+    def test_tolerance_tracks_nonzero_diffraction_order(self):
+        model = StackModel(wavelength_um=.85, incident_n=1, exit_n=1,
+            period_x_um=1.0, period_y_um=.4, order_budget=9, grid_size=24,
+            layers=(Layer(kind="stripe", thickness_um=.2,
+                          background_material="air", feature_material="dielectric",
+                          feature_n=2, fill_x=.45, fill_y=.5),))
+        settings = [{"path": "layer.0.thickness_um", "mean": .2,
+                     "sigma": .003, "lower": .19, "upper": .21}]
+        result = tolerance_study(model, settings, 5, .82, .88, 7,
+            quantity="R_order", seed=11, order_m=-1, order_n=0,
+            operating_wavelength_um=.85)
+        self.assertEqual(result["order_m"], -1)
+        self.assertIn("operating_value", result["summary"])
+        self.assertTrue(all(row["feature_value"] >= 0 for row in result["rows"]))
+        self.assertEqual(len(result["sensitivities"]), 3)
+
     def test_research_report_contains_reproducibility_fields(self):
         model = StackModel(layers=(Layer(kind="uniform", thickness_um=.2,
                                          background_material="silica"),))

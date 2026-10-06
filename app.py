@@ -463,7 +463,9 @@ class Handler(BaseHTTPRequestHandler):
                     int(data["samples"]), float(data["start"]), float(data["stop"]),
                     int(data["points"]), str(data.get("quantity", "R")),
                     str(data.get("extremum", "max")), int(data.get("seed", 12345)),
-                    data.get("correlation"))
+                    data.get("correlation"), int(data.get("order_m", 0)),
+                    int(data.get("order_n", 0)),
+                    float(data["operating_wavelength_um"]) if data.get("operating_wavelength_um") is not None else None)
             elif operation == "research_report":
                 payload = {"markdown": research_report(parse_stack(data["model"]),
                     software_versions(), str(data.get("title", "Photonics simulation"))[:120])}

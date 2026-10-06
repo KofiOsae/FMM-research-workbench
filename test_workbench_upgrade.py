@@ -173,6 +173,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'appendSpectrumDiagnostics',page)
                 self.assertIn(b'Primary solver message',page)
                 self.assertIn(b'restoreWorkbenchProjectExtras',page)
+                self.assertIn('Reflected order Rₘₙ'.encode(),page)
+                self.assertIn(b'toleranceOperatingLambda',page)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:
