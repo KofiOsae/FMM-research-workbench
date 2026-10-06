@@ -13,6 +13,7 @@ from stack import StackModel, Layer
 from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
 from bands import BandModel, full_zone_gaps
+from sweep import diffraction_order_sweep
 
 
 class UpgradeTests(unittest.TestCase):
@@ -70,6 +71,21 @@ class UpgradeTests(unittest.TestCase):
             fourier_order=1,grid_size=32,points_per_segment=3,bands=3),5)
         self.assertEqual(result['grid_points_per_axis'],5)
         self.assertEqual(result['complete_sampled_gaps'],[])
+
+    def test_diffraction_order_sweep_opens_first_orders(self):
+        grating=StackModel(wavelength_um=.633,incident_n=1,exit_n=1,
+            period_x_um=.55,period_y_um=.3,order_budget=13,grid_size=24,
+            layers=(Layer(kind='stripe',thickness_um=.2,
+                background_material='air',feature_material='dielectric',
+                feature_n=2,fill_x=.5,fill_y=.5),))
+        result=diffraction_order_sweep(grating,'period_x_um',.55,1.05,3)
+        self.assertEqual(result['solved_points'],3)
+        self.assertIn({'m':-1,'n':0},result['orders'])
+        self.assertIn({'m':1,'n':0},result['orders'])
+        self.assertEqual({(o['m'],o['n']) for o in result['rows'][0]['orders']},{(0,0)})
+        last=result['rows'][-1]
+        self.assertAlmostEqual(sum(o['R'] for o in last['orders']),last['R'],places=10)
+        self.assertAlmostEqual(sum(o['T'] for o in last['orders']),last['T'],places=10)
 
     def wait(self,key):
         deadline=time.monotonic()+3
@@ -135,11 +151,17 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'rotateMask(angleDeg)',script)
                 self.assertIn(b'Add transformed copy',script)
                 self.assertIn(b'transformedPixels',script)
+                self.assertIn(b'Diffraction-order efficiency sweep',script)
+                self.assertIn(b'runDiffractionSweep',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
                 self.assertIn(b'Geometry in-plane rotation',guide)
                 self.assertIn(b'Add a transformed copy in this layer',guide)
+            with urlopen(base+'/FIRST_STEPS.html') as response:
+                guide=response.read()
+                self.assertIn(b'Diffraction-order efficiency sweep',guide)
+                self.assertIn(b'Rayleigh threshold',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)

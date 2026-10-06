@@ -29,7 +29,7 @@ from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map, kspace_map, polarization_kspace_map
 from resonance import adaptive_resonance
 from multi_resonance import adaptive_multi_resonance, multi_resonance_sweep
-from sweep import evaluate_point
+from sweep import evaluate_point, diffraction_order_sweep
 from multifit import multi_parameter_fit
 from slab_compare import slab_phase_match, compare_stack_layer, dispersion_comparison
 from multilayer_modes import solve_multilayer_modes
@@ -84,7 +84,7 @@ def method_provenance(operation: str) -> dict:
     }
     fmm_operations = {"solve","spectrum","field","vertical_field","angle_wavelength","kspace",
                       "polarization_kspace","resonance","multi_resonance","multi_resonance_sweep","metasurface_phase_library",
-                      "sweep_point","slab_compare","slab_dispersion","tolerance","resonance_fields",
+                      "sweep_point","diffraction_sweep","slab_compare","slab_dispersion","tolerance","resonance_fields",
                       "resonant_polarization","polarization_winding","optimize_geometry","measurement","multi_fit"}
     references = (common if operation in fmm_operations else []) + groups.get(operation, [])
     return {"operation": operation, "references": references,
@@ -417,6 +417,10 @@ class Handler(BaseHTTPRequestHandler):
                     float(data["x"]), str(data.get("quantity", "R")),
                     str(data["y_parameter"]) if data.get("y_parameter") else None,
                     float(data["y"]) if data.get("y_parameter") else None)
+            elif operation == "diffraction_sweep":
+                payload = diffraction_order_sweep(parse_stack(data["model"]),
+                    str(data["parameter"]), float(data["start"]), float(data["stop"]),
+                    int(data["points"]))
             elif operation == "bands":
                 band_model = BandModel(**data["model"])
                 if band_model.fourier_order > 7:
