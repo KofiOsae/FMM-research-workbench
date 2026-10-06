@@ -126,7 +126,8 @@ class UpgradeTests(unittest.TestCase):
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)
                 self.assertIn('k∥ / k₀'.encode(),page)
-                self.assertIn(b'Previous plot cleared',page)
+                self.assertIn(b'Previous successful result',page)
+                self.assertIn(b'run-diagnostic',page)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:
