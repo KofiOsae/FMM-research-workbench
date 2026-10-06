@@ -120,6 +120,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'extruded through the entered layer thickness',script)
                 self.assertIn(b'Geometry in-plane rotation',script)
                 self.assertIn(b'rotateMask(angleDeg)',script)
+                self.assertIn(b'Add transformed copy',script)
+                self.assertIn(b'transformedPixels',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 self.assertIn(b'Flat-lens design', response.read())
             with urlopen(base+'/') as response:
