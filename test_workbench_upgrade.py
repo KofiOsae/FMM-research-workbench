@@ -118,12 +118,15 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Export SVG',script)
                 self.assertIn(b'maskBoundarySegments',script)
                 self.assertIn(b'extruded through the entered layer thickness',script)
+                self.assertIn(b'Geometry in-plane rotation',script)
+                self.assertIn(b'rotateMask(angleDeg)',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 self.assertIn(b'Flat-lens design', response.read())
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)
                 self.assertIn('k∥ / k₀'.encode(),page)
+                self.assertIn(b'Previous plot cleared',page)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:

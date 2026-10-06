@@ -28,3 +28,7 @@ dialog{width:min(900px,calc(100vw - 32px));max-height:85vh;border:1px solid #b9c
 .mask-editor .row3{grid-template-columns:repeat(2,minmax(0,1fr))}
 .mask-editor select,.mask-editor input{min-width:0;width:100%}
 .drc-pass{color:#17643a}.drc-warn{color:#9a4c00;font-weight:650}
+.mask-rotation-controls{margin:10px 0;padding:10px 12px;border:1px solid #c9d8e8;border-radius:10px;background:#f5f9fd}
+.mask-rotation-controls .row{grid-template-columns:1fr}
+.mask-rotation-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:2px}
+.mask-rotation-actions button{min-width:0;padding:7px 5px;font-size:12px;white-space:nowrap}
