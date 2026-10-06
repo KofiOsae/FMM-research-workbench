@@ -153,6 +153,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'transformedPixels',script)
                 self.assertIn(b'Diffraction-order efficiency sweep',script)
                 self.assertIn(b'runDiffractionSweep',script)
+                self.assertIn(b"operation==='spectrum'",script)
+                self.assertIn(b'collectWorkbenchProjectExtras',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -170,6 +172,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'run-diagnostic',page)
                 self.assertIn(b'appendSpectrumDiagnostics',page)
                 self.assertIn(b'Primary solver message',page)
+                self.assertIn(b'restoreWorkbenchProjectExtras',page)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:
