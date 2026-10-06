@@ -97,6 +97,44 @@ def parse_stack(data: dict) -> StackModel:
     return StackModel(**values)
 
 
+def _spectrum_diagnostics(rows: list[dict]) -> dict:
+    failed = [row for row in rows if row.get("status") not in ("converged", "unconverged")]
+    grouped: dict[str, list[float]] = {}
+    for row in failed:
+        grouped.setdefault(str(row.get("status") or "Unknown solver failure"), []).append(
+            float(row["wavelength_um"]))
+
+    def suggestion(message: str) -> str:
+        lower = message.lower()
+        if "grazing" in lower or "cutoff" in lower:
+            return "Move the wavelength range or incidence angle slightly so no sampled point lies exactly on the diffraction-order cutoff, then rerun."
+        if (("outside" in lower and ("range" in lower or "wavelength" in lower))
+                or "data cover" in lower or "data coverage" in lower):
+            return "Restrict the wavelength scan to the cited material-data range or select/import optical constants covering the requested wavelengths."
+        if "order budget" in lower or "fourier" in lower and "3" in lower:
+            return "Use a Fourier budget from 3 to 101. After the run succeeds, increase it within that range and inspect convergence."
+        if "grid size" in lower or "geometry grid" in lower:
+            return "Use a geometry grid from 16 to 256 and keep at least 10–20 cells across the smallest feature."
+        if "mask" in lower or "base64" in lower:
+            return "Reopen the custom-mask editor, confirm nonzero width and height, reload or redraw the mask, and save the project again."
+        if "singular" in lower or "eigen" in lower or "converge" in lower:
+            return "Open Single wavelength at the first failed point, shift wavelength slightly, and compare higher Fourier and geometry-grid settings."
+        return "Open Single wavelength at the first failed wavelength to expose the full solver error, then correct the cited material, geometry, angle, or numerical setting."
+
+    causes = [{"message": message, "count": len(wavelengths),
+               "first_wavelength_um": min(wavelengths),
+               "last_wavelength_um": max(wavelengths),
+               "example_wavelengths_um": wavelengths[:5],
+               "suggestion": suggestion(message)}
+              for message, wavelengths in grouped.items()]
+    causes.sort(key=lambda item: (-item["count"], item["first_wavelength_um"]))
+    return {"requested_points": len(rows),
+            "computed_points": sum(row.get("status") in ("converged", "unconverged") for row in rows),
+            "converged_points": sum(row.get("status") == "converged" for row in rows),
+            "unconverged_points": sum(row.get("status") == "unconverged" for row in rows),
+            "failed_points": len(failed), "causes": causes}
+
+
 def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
     if not np.isfinite([start, stop]).all() or not 2 <= points <= 2001 or not start < stop:
         raise ValueError("Use 2–2001 wavelengths with increasing finite limits")
@@ -129,7 +167,8 @@ def spectrum(model: StackModel, start: float, stop: float, points: int) -> dict:
     note = ("Every layer is laterally uniform, so the exact transfer-matrix path was used. "
             "R0 and T0 equal total R and T because no diffraction orders exist." if uniform_stack else
             "Each point compares multiple Fourier orders; geometry-grid convergence is a separate check.")
-    return {"rows": rows, "method": method, "note": note,
+    return {"rows": rows, "diagnostics": _spectrum_diagnostics(rows),
+            "method": method, "note": note,
             "phase_convention": "Wrapped degrees; uniform TMM uses tangential electric amplitudes at the first/last interfaces. Patterned FMM uses the specular outgoing local s/p component matching incident polarization. Null means undefined. Power convergence does not certify phase convergence."}
 
 

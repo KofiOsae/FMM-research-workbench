@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import run_jobs
-from app import spectrum
+from app import spectrum, _spectrum_diagnostics
 from stack import StackModel, Layer
 from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
@@ -46,6 +46,19 @@ class UpgradeTests(unittest.TestCase):
 
     def test_high_resolution_spectrum(self):
         self.assertEqual(len(spectrum(self.model(), .8, 1.2, 151)['rows']),151)
+
+    def test_spectrum_failures_report_cause_and_action(self):
+        patterned=replace(self.model(),layers=(Layer(kind='stripe',thickness_um=.125,
+                            background_material='air',feature_material='dielectric',feature_n=2),))
+        with patch('app.stack_convergence', side_effect=ValueError('An order is at grazing cutoff; adjust wavelength or angle slightly')):
+            result=spectrum(patterned, .8, .82, 3)
+        diagnostics=result['diagnostics']
+        self.assertEqual(diagnostics['failed_points'],3)
+        self.assertEqual(diagnostics['computed_points'],0)
+        self.assertIn('grazing cutoff',diagnostics['causes'][0]['message'])
+        self.assertIn('Move the wavelength range',diagnostics['causes'][0]['suggestion'])
+        material=_spectrum_diagnostics([{'wavelength_um':5.0,'status':'Green silicon data cover 0.25–1.45 µm'}])
+        self.assertIn('material-data range',material['causes'][0]['suggestion'])
 
     def test_map_above_old_limit(self):
         with patch('scattering_maps.solve_stack',return_value={'R':.04}), patch('scattering_maps.stack_convergence',return_value={'converged':True}):
@@ -133,6 +146,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn('k∥ / k₀'.encode(),page)
                 self.assertIn(b'Previous successful result',page)
                 self.assertIn(b'run-diagnostic',page)
+                self.assertIn(b'appendSpectrumDiagnostics',page)
+                self.assertIn(b'Primary solver message',page)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:
