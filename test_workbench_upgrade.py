@@ -123,7 +123,10 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Add transformed copy',script)
                 self.assertIn(b'transformedPixels',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
-                self.assertIn(b'Flat-lens design', response.read())
+                guide=response.read()
+                self.assertIn(b'Flat-lens design',guide)
+                self.assertIn(b'Geometry in-plane rotation',guide)
+                self.assertIn(b'Add a transformed copy in this layer',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)
