@@ -110,7 +110,12 @@ class UpgradeTests(unittest.TestCase):
         base=f'http://127.0.0.1:{server.server_port}'
         try:
             with urlopen(base+'/workbench.js') as response:
-                self.assertIn(b'Run from here',response.read())
+                script=response.read()
+                self.assertIn(b'Run from here',script)
+                self.assertIn(b'Straight line',script)
+                self.assertIn(b'materialPreviewColors',script)
+                self.assertIn(b'periodic pixel-run screen',script)
+                self.assertIn(b'Export SVG',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 self.assertIn(b'Flat-lens design', response.read())
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
