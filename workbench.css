@@ -35,3 +35,9 @@ dialog{width:min(900px,calc(100vw - 32px));max-height:85vh;border:1px solid #b9c
 .mask-copy-controls{margin-top:10px;padding-top:9px;border-top:1px solid #c9d8e8}.mask-copy-controls summary{cursor:pointer;font-weight:650;color:#174f7d}.mask-copy-controls button{width:100%;margin-top:7px}
 .run-diagnostic{margin:8px 0 12px;padding:12px 14px;border:1px solid #e3a58f;border-radius:9px;background:#fff3ee;color:#6f2e1b}
 .run-diagnostic p{margin:6px 0}.run-diagnostic pre{margin:9px 0 0;padding:9px;overflow:auto;border-radius:6px;background:#fff;font-size:12px;color:#293b4e}
+.tool-focus-hidden{display:none!important}
+.tool-finder{min-width:min(340px,100%)}
+.tool-finder input,.tool-finder select{margin-top:3px}
+.focus-choice{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.focus-choice input{width:auto;margin:0}
+[data-custom-expression]{min-width:230px}

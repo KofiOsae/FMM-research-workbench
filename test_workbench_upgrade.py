@@ -155,6 +155,11 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'runDiffractionSweep',script)
                 self.assertIn(b"operation==='spectrum'",script)
                 self.assertIn(b'collectWorkbenchProjectExtras',script)
+                self.assertIn(b'Gaussian or imported fiber illumination',script)
+                self.assertIn(b'parsePortCsv',script)
+                self.assertIn(b'forward_efficiency',script)
+                self.assertIn(b'Upper/lower coupled-branch composition',script)
+                self.assertIn(b'useTrackedBranches',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -164,6 +169,8 @@ class UpgradeTests(unittest.TestCase):
                 guide=response.read()
                 self.assertIn(b'Diffraction-order efficiency sweep',guide)
                 self.assertIn(b'Rayleigh threshold',guide)
+                self.assertIn(b'Match a fiber or Gaussian field',guide)
+                self.assertIn(b'Fit upper and lower coupled branches',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)
@@ -175,6 +182,13 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'restoreWorkbenchProjectExtras',page)
                 self.assertIn('Reflected order Rₘₙ'.encode(),page)
                 self.assertIn(b'toleranceOperatingLambda',page)
+                self.assertIn(b'max="201" value="37"',page)
+                self.assertIn(b'max="512" value="64"',page)
+            with urlopen(base+'/workbench.js') as response:
+                enhancements=response.read()
+                self.assertIn(b'Validation report and diffraction light cones',enhancements)
+                self.assertIn(b'Linked custom-observable sweep',enhancements)
+                self.assertIn(b'Find a tool in this workspace',enhancements)
             body=json.dumps({'model':asdict(self.model()),'start':.8,'stop':1.2,'points':151}).encode()
             request=Request(base+'/api/tmm',data=body,headers={'Content-Type':'application/json','X-Workbench-Job':'1'})
             with urlopen(request) as response:

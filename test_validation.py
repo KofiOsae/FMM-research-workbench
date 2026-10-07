@@ -36,9 +36,13 @@ from dipole_ldos import dipole_ldos, dipole_ldos_spectrum
 from bayesian import bayesian_spectrum
 from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
+from mode_coupling import mode_port_coupling
+from coupled_branches import fit_coupled_branches, HC_EV_UM
 from polarization_winding import _charge_from_angles
 from optimization import optimize_geometry
 from resonator_metrics import resonator_metrics
+from observables import evaluate_observable
+from research_validation import diffraction_order_map, linked_observable_sweep, settings_fingerprint
 import materials
 
 
@@ -114,6 +118,48 @@ class PhysicalValidation(unittest.TestCase):
         self.assertEqual(np.asarray(fine["modes"][0]["fields"]["Ez_abs"]).shape,
                          (fine["mesh"]["ny"], fine["mesh"]["nx"]))
         self.assertGreater(fine["modes"][0]["core_electric_fraction"], .4)
+
+    def test_mode_port_overlap_recovers_identical_imported_mode(self):
+        settings = dict(wavelength_um=1.55, core_width_um=.55,
+            core_height_um=.22, core_n=3.47, substrate_n=1.44,
+            cladding_n=1, padding_x_um=.55, padding_top_um=.55,
+            padding_bottom_um=.55, mesh_um=.055, modes=1, guess=3.3,
+            boundary="0000", core_shape="rectangle", sidewall_angle_deg=90)
+        solved = solve_vector_modes(**settings)
+        imported = {"x_um": solved["x_um"], "y_um": solved["y_um"],
+                    **solved["modes"][0]["fields"]}
+        result = mode_port_coupling(settings, {"type":"imported", "field":imported})
+        overlap = result["modes"][0]["power_overlap"]
+        self.assertAlmostEqual(overlap["forward_efficiency"], 1, places=10)
+        self.assertLess(overlap["backward_efficiency"], 1e-20)
+
+    def test_gaussian_mode_overlap_reports_directional_port_projection(self):
+        settings = dict(wavelength_um=1.55, core_width_um=.55,
+            core_height_um=.22, core_n=3.47, substrate_n=1.44,
+            cladding_n=1, padding_x_um=.55, padding_top_um=.55,
+            padding_bottom_um=.55, mesh_um=.055, modes=2, guess=3.3,
+            boundary="0000", core_shape="rectangle", sidewall_angle_deg=90)
+        result = mode_port_coupling(settings, {"type":"gaussian",
+            "waist_x_um":.8, "waist_y_um":.8, "center_y_um":.11,
+            "polarization_angle_deg":0, "medium_n":1.44})
+        self.assertTrue(result["quantity_status"]["power_overlap_available"])
+        self.assertGreater(result["modes"][0]["power_overlap"]["forward_efficiency"], 0)
+        self.assertLess(result["modes"][0]["power_overlap"]["forward_efficiency"], 1)
+
+    def test_coupled_branch_fit_recovers_splitting_and_composition(self):
+        parameter = np.linspace(-1, 1, 11)
+        matter, coupling = 2.0, .04
+        cavity = matter+.2*parameter
+        root = np.sqrt(((cavity-matter)/2)**2+coupling**2)
+        upper = (cavity+matter)/2+root
+        lower = (cavity+matter)/2-root
+        result = fit_coupled_branches(parameter, HC_EV_UM/upper,
+            HC_EV_UM/lower, cavity_linewidth_mev=30, matter_linewidth_mev=20)
+        self.assertAlmostEqual(result["coupling_mev"], 40, places=5)
+        self.assertAlmostEqual(result["minimum_splitting_mev"], 80, places=5)
+        middle = len(parameter)//2
+        self.assertAlmostEqual(result["upper_photonic_fraction"][middle], .5, places=5)
+        self.assertGreater(result["cooperativity_4g2_over_product"], 1)
 
     def test_vector_mode_curved_and_sloped_core_masks(self):
         ellipse = solve_vector_modes(1.55, .70, .40, 3.47, 1.44, 1.0,
@@ -883,6 +929,39 @@ class PhysicalValidation(unittest.TestCase):
     def test_mpb_square_rod_reference(self):
         # MPB tutorial: epsilon=12, r/a=.2, k=(.3,.3), first TE band=0.372604.
         self.assertLess(abs(mpb_te_first_band(7)-.372604), .0031)
+
+
+class ObservableTrustTests(unittest.TestCase):
+    def test_custom_diffraction_formula_and_imbalance(self):
+        result = {"R": .1, "T": .9, "A": 0, "R0": .1, "T0": .2,
+                  "orders": [{"m": 1, "n": 0, "R": 0, "T": .35},
+                             {"m": -1, "n": 0, "R": 0, "T": .35}]}
+        self.assertAlmostEqual(evaluate_observable(result, "To(1,0)+To(-1,0)"), .7)
+        self.assertAlmostEqual(evaluate_observable(result, "T-(To(1,0)+To(-1,0))"), .2)
+        self.assertAlmostEqual(evaluate_observable(result, "stdev([To(1,0),To(-1,0)])"), 0)
+        with self.assertRaises(ValueError):
+            evaluate_observable(result, "__import__('os').system('echo no')")
+
+    def test_linked_sweep_records_relationship_and_fingerprint(self):
+        model = StackModel(layers=(Layer(kind="uniform", background_material="dielectric",
+                                        background_n=1.5, thickness_um=.1),),
+                           incident_n=1, exit_n=1.5, order_budget=9, grid_size=16)
+        result = linked_observable_sweep(model, "period_x_um",
+            [{"path": "period_y_um", "scale": 1, "offset": 0}], .5, .7, 3,
+            {"quantity": "T"})
+        self.assertEqual(len(result["rows"]), 3)
+        for row in result["rows"]:
+            self.assertAlmostEqual(row["parameters"]["period_x_um"],
+                                   row["parameters"]["period_y_um"])
+            self.assertEqual(len(row["submitted_model_sha256"]), 64)
+
+    def test_order_map_classifies_retained_orders(self):
+        model = StackModel(layers=(Layer(kind="uniform", background_n=1.5),),
+                           period_x_um=.4, period_y_um=.4, order_budget=9, grid_size=16)
+        result = diffraction_order_map(model)
+        zero = next(row for row in result["orders"] if row["m"] == row["n"] == 0)
+        self.assertEqual(zero["ports"]["reflected"]["status"], "propagating")
+        self.assertEqual(len(settings_fingerprint({"a": 1})), 64)
 
 
 if __name__ == "__main__":

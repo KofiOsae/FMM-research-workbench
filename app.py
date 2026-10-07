@@ -9,6 +9,7 @@ import os
 import logging
 import run_jobs
 from dataclasses import asdict
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -44,8 +45,12 @@ from optimization import optimize_geometry
 from bayesian import bayesian_spectrum
 from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
+from mode_coupling import mode_port_coupling
+from coupled_branches import fit_coupled_branches
 from metasurface import phase_library_and_lens
 from resonator_metrics import resonator_metrics
+from research_validation import (diffraction_order_map, linked_observable_sweep,
+                                 settings_fingerprint, validation_report)
 
 
 ROOT = Path(__file__).parent
@@ -73,6 +78,10 @@ def method_provenance(operation: str) -> dict:
                        "doi":"10.1364/OE.8.000173", "applies_to":"plane-wave band eigenfield"}],
         "vector_modes": [{"id":"fallahkhair-2008", "title":"Vector finite difference modesolver for anisotropic dielectric waveguides",
                           "doi":"10.1109/JLT.2008.923643", "applies_to":"full-vector finite-difference modes"}],
+        "mode_port_coupling": [{"id":"fallahkhair-2008", "title":"Vector finite difference modesolver for anisotropic dielectric waveguides",
+                                "doi":"10.1109/JLT.2008.923643", "applies_to":"waveguide eigenmodes used for port overlap"}],
+        "coupled_branches": [{"id":"hopfield-1958", "title":"Theory of the contribution of excitons to the complex dielectric constant of crystals",
+                              "doi":"10.1103/PhysRev.112.1555", "applies_to":"two-oscillator branch composition"}],
         "dipole_ldos": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
                          "applies_to":"planar electric-dipole LDOS and collection"}],
         "dipole_ldos_spectrum": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
@@ -84,7 +93,8 @@ def method_provenance(operation: str) -> dict:
     }
     fmm_operations = {"solve","spectrum","field","vertical_field","angle_wavelength","kspace",
                       "polarization_kspace","resonance","multi_resonance","multi_resonance_sweep","metasurface_phase_library",
-                      "sweep_point","diffraction_sweep","slab_compare","slab_dispersion","tolerance","resonance_fields",
+                      "sweep_point","diffraction_sweep","linked_observable_sweep","validation_report","diffraction_order_map",
+                      "slab_compare","slab_dispersion","tolerance","resonance_fields",
                       "resonant_polarization","polarization_winding","optimize_geometry","measurement","multi_fit"}
     references = (common if operation in fmm_operations else []) + groups.get(operation, [])
     return {"operation": operation, "references": references,
@@ -112,9 +122,9 @@ def _spectrum_diagnostics(rows: list[dict]) -> dict:
                 or "data cover" in lower or "data coverage" in lower):
             return "Restrict the wavelength scan to the cited material-data range or select/import optical constants covering the requested wavelengths."
         if "order budget" in lower or "fourier" in lower and "3" in lower:
-            return "Use a Fourier budget from 3 to 101. After the run succeeds, increase it within that range and inspect convergence."
+            return "Use a Fourier budget from 3 to 201. After the run succeeds, increase it within that range and inspect convergence."
         if "grid size" in lower or "geometry grid" in lower:
-            return "Use a geometry grid from 16 to 256 and keep at least 10–20 cells across the smallest feature."
+            return "Use a geometry grid from 16 to 512 and keep at least 10–20 cells across the smallest feature."
         if "mask" in lower or "base64" in lower:
             return "Reopen the custom-mask editor, confirm nonzero width and height, reload or redraw the mask, and save the project again."
         if "singular" in lower or "eigen" in lower or "converge" in lower:
@@ -421,6 +431,18 @@ class Handler(BaseHTTPRequestHandler):
                 payload = diffraction_order_sweep(parse_stack(data["model"]),
                     str(data["parameter"]), float(data["start"]), float(data["stop"]),
                     int(data["points"]))
+            elif operation == "linked_observable_sweep":
+                payload = linked_observable_sweep(parse_stack(data["model"]),
+                    str(data["driver"]), data.get("links", []), float(data["start"]),
+                    float(data["stop"]), int(data["points"]), data["observable"],
+                    str(data.get("goal", "max")), bool(data.get("validate_each", False)),
+                    float(data.get("tolerance", .01)))
+            elif operation == "validation_report":
+                payload = validation_report(parse_stack(data["model"]),
+                    data.get("observables", []), float(data.get("tolerance", .01)),
+                    bool(data.get("adaptive", True)))
+            elif operation == "diffraction_order_map":
+                payload = diffraction_order_map(parse_stack(data["model"]))
             elif operation == "bands":
                 band_model = BandModel(**data["model"])
                 if band_model.fourier_order > 7:
@@ -526,7 +548,9 @@ class Handler(BaseHTTPRequestHandler):
                     data["objectives"], data.get("linear_constraints"),
                     int(data.get("generations", 4)), int(data.get("population", 5)),
                     int(data.get("seed", 12345)), bool(data.get("polish", True)),
-                    int(data.get("robust_samples", 1)), float(data.get("robust_weight", .25)))
+                    int(data.get("robust_samples", 1)), float(data.get("robust_weight", .25)),
+                    bool(data.get("convergence_aware", False)),
+                    float(data.get("convergence_tolerance", .01)))
             elif operation == "bayesian_spectrum":
                 payload = bayesian_spectrum(parse_stack(data["model"]), data["csv"],
                     data["parameters"], float(data["noise_sigma"]), int(data.get("draws", 1000)),
@@ -537,6 +561,16 @@ class Handler(BaseHTTPRequestHandler):
             elif operation == "vector_modes":
                 payload = solve_vector_modes(**{key: (str(value) if key in ("boundary","core_shape") else
                     int(value) if key == "modes" else float(value)) for key, value in data.items()})
+            elif operation == "mode_port_coupling":
+                mode_inputs = {key: (str(value) if key in ("boundary", "core_shape") else
+                    int(value) if key == "modes" else float(value))
+                    for key, value in data["mode_solver"].items()}
+                payload = mode_port_coupling(mode_inputs, data["source"])
+            elif operation == "coupled_branches":
+                payload = fit_coupled_branches(data["parameter"], data["branch_1_um"],
+                    data["branch_2_um"],
+                    None if data.get("cavity_linewidth_mev") in (None, "") else float(data["cavity_linewidth_mev"]),
+                    None if data.get("matter_linewidth_mev") in (None, "") else float(data["matter_linewidth_mev"]))
             elif operation == "metasurface_phase_library":
                 payload = phase_library_and_lens(parse_stack(data["model"]),
                     str(data["parameter"]), float(data["start"]), float(data["stop"]),
@@ -556,6 +590,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(figure, "image/svg+xml" if fmt == "svg" else "image/png")
             else:
                 return self._send(b"Not found", "text/plain", 404)
+            payload["submission"] = {"operation": operation,
+                "received_utc": datetime.now(timezone.utc).isoformat(),
+                "sha256": settings_fingerprint(data), "inputs": data}
             payload["software"] = software_versions()
             payload["provenance"] = method_provenance(operation)
             self._send(json.dumps(payload, allow_nan=False).encode(), "application/json")

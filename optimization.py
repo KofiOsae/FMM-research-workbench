@@ -9,13 +9,16 @@ from run_jobs import progress
 
 from stack import StackModel, solve_stack, stack_convergence, grid_convergence
 from sweep import set_parameter
+from observables import observable_spec, observable_value
 
 
 def optimize_geometry(model: StackModel, variables: list[dict], objectives: list[dict],
                       linear_constraints: list[dict] | None = None,
                       generations: int = 4, population: int = 5,
                       seed: int = 12345, polish: bool = True,
-                      robust_samples: int = 1, robust_weight: float = .25) -> dict:
+                      robust_samples: int = 1, robust_weight: float = .25,
+                      convergence_aware: bool = False,
+                      convergence_tolerance: float = .01) -> dict:
     model.validate()
     if not 1 <= len(variables) <= 5:
         raise ValueError("Use one to five design variables")
@@ -25,6 +28,8 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
         raise ValueError("Use 1–20 generations and population multiplier 4–12")
     if not 1 <= robust_samples <= 12 or not 0 <= robust_weight <= 2:
         raise ValueError("Use 1–12 robust samples and robustness weight from 0 to 2")
+    if not 1e-8 <= convergence_tolerance <= .25:
+        raise ValueError("Convergence tolerance must be from 1e-8 to 0.25")
     paths, bounds, uncertainty_sigma = [], [], []
     for item in variables:
         path, lower, upper = str(item["path"]), float(item["lower"]), float(item["upper"])
@@ -37,12 +42,12 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
         paths.append(path); bounds.append((lower, upper)); uncertainty_sigma.append(sigma)
     normalized_objectives = []
     for item in objectives:
-        wavelength = float(item["wavelength_um"]); quantity = str(item["quantity"])
+        wavelength = float(item["wavelength_um"]); spec = observable_spec(item)
         goal = str(item.get("goal", "max")); weight = float(item.get("weight", 1))
         target = float(item.get("target", 0))
-        if wavelength <= 0 or quantity not in ("R", "T", "A", "R0", "T0") or goal not in ("max", "min", "target") or weight <= 0 or not np.isfinite([wavelength, weight, target]).all():
+        if wavelength <= 0 or goal not in ("max", "min", "target") or weight <= 0 or not np.isfinite([wavelength, weight, target]).all():
             raise ValueError("Each objective needs positive wavelength and weight, supported quantity, and max/min/target goal")
-        normalized_objectives.append({"wavelength_um": wavelength, "quantity": quantity,
+        normalized_objectives.append({"wavelength_um": wavelength, **spec,
                                       "goal": goal, "weight": weight, "target": target})
     scipy_constraints = []
     constraint_records = []
@@ -74,11 +79,23 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
                 for objective in normalized_objectives:
                     point = StackModel(**{**asdict(current), "layers": current.layers,
                         "wavelength_um": objective["wavelength_um"]})
-                    value = float(solve_stack(point)[objective["quantity"]])
+                    result_point = solve_stack(point)
+                    value = observable_value(result_point, objective)
                     raw = -value if objective["goal"] == "max" else value if objective["goal"] == "min" else (value-objective["target"])**2
                     contribution = objective["weight"]*raw
+                    convergence_change = None
+                    if convergence_aware:
+                        high_budget = min(201, point.order_budget+24)
+                        if high_budget == point.order_budget:
+                            raise ValueError("Convergence-aware optimization needs an order budget below 201")
+                        high = StackModel(**{**asdict(point), "layers": point.layers,
+                                             "order_budget": high_budget})
+                        high_value = observable_value(solve_stack(high), objective)
+                        convergence_change = abs(high_value-value)
+                        contribution += 1e3*max(0.0, convergence_change-convergence_tolerance)
                     total += contribution
-                    terms.append({**objective, "value": value, "loss_contribution": contribution})
+                    terms.append({**objective, "value": value, "loss_contribution": contribution,
+                                  "convergence_change": convergence_change})
             except (ValueError, np.linalg.LinAlgError):
                 failures += 1; total = 1e6; terms = []
             sample_losses.append(float(total)); sample_terms.append(terms)
@@ -105,7 +122,11 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
     for objective in normalized_objectives:
         point = StackModel(**{**asdict(best_model), "layers": best_model.layers,
             "wavelength_um": objective["wavelength_um"]})
-        order = stack_convergence(point); grid = grid_convergence(point)
+        requested = [objective | {"tolerance": convergence_tolerance}]
+        order = stack_convergence(point, tolerance=convergence_tolerance,
+                                  observables=requested)
+        grid = grid_convergence(point, tolerance=convergence_tolerance,
+                                observables=requested)
         checks.append({"wavelength_um": objective["wavelength_um"],
             "fourier_converged": bool(order["converged"] and order["physical_balance_ok"]),
             "grid_converged": bool(grid["converged"]), "fourier_change": order["max_change"],
@@ -122,5 +143,7 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
                       "mean_loss":best_evaluation["robust_mean_loss"],
                       "std_loss":best_evaluation["robust_std_loss"],
                       "worst_loss":best_evaluation["robust_worst_loss"]},
+        "convergence_aware_candidates": bool(convergence_aware),
+        "convergence_tolerance": convergence_tolerance,
         "validated": all(row["fourier_converged"] and row["grid_converged"] for row in checks),
         "warning": "This bounded stochastic search does not prove a global optimum. Robust samples use fixed Gaussian fabrication perturbations clipped to the design bounds. Repeat with multiple seeds, justified distributions, and reserved validation wavelengths."}

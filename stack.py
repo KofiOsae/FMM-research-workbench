@@ -93,8 +93,8 @@ class StackModel:
             raise ValueError("Lattice-vector angle must be from 30° to 150°")
         if min(self.wavelength_um, self.incident_n, self.exit_n, self.period_x_um, self.period_y_um) <= 0:
             raise ValueError("Wavelength, indices, and periods must be positive")
-        if not 3 <= self.order_budget <= 101 or not 16 <= self.grid_size <= 256:
-            raise ValueError("Order budget must be 3–101 and grid size 16–256")
+        if not 3 <= self.order_budget <= 201 or not 16 <= self.grid_size <= 512:
+            raise ValueError("Order budget must be 3–201 and grid size 16–512")
         if not 1 <= len(self.layers) <= 64:
             raise ValueError("Use between one and 64 physical layers")
         for layer in self.layers:
@@ -540,55 +540,117 @@ def vertical_field(model: StackModel, plane: str = "xz", fixed_fraction: float =
                       "Loss density = normalization*omega*Im(epsilon)|E|^2 in incident-power-per-micrometre units."]}
 
 
-def stack_convergence(model: StackModel, budgets=None, tolerance=.01) -> dict:
+def _order_changes(first: dict, second: dict) -> list[dict]:
+    """Compare every order present in either scattering result."""
+    keys = {(int(row["m"]), int(row["n"])) for result in (first, second)
+            for row in result.get("orders", [])}
+    lookups = [{(int(row["m"]), int(row["n"])): row for row in result.get("orders", [])}
+               for result in (first, second)]
+    rows = []
+    for m, n in sorted(keys):
+        a, b = (lookup.get((m, n), {}) for lookup in lookups)
+        r0, r1 = float(a.get("R", 0)), float(b.get("R", 0))
+        t0, t1 = float(a.get("T", 0)), float(b.get("T", 0))
+        rows.append({"m": m, "n": n, "R_low": r0, "R_high": r1,
+                     "T_low": t0, "T_high": t1,
+                     "delta_R": abs(r1-r0), "delta_T": abs(t1-t0),
+                     "max_change": max(abs(r1-r0), abs(t1-t0))})
+    return rows
+
+
+def stack_convergence(model: StackModel, budgets=None, tolerance=.01,
+                      observables: list[dict] | None = None) -> dict:
     if budgets is None:
         middle = model.order_budget
-        budgets = (max(3, middle-16), middle, min(101, middle+24))
+        budgets = (max(3, middle-16), middle, min(201, middle+24))
         if len(set(budgets)) != 3:
-            raise ValueError("Choose an order budget that permits three distinct refinements")
+            if middle >= 177:
+                budgets = (max(3, middle-48), max(3, middle-24), middle)
+            else:
+                budgets = (3, min(27, max(4, middle+8)), min(51, max(5, middle+24)))
+        if len(set(budgets)) != 3:
+            raise ValueError("The Fourier budget cannot form three distinct refinement levels")
     samples = []
     for budget in budgets:
         item = solve_stack(StackModel(**{**asdict(model), "order_budget": budget,
                                         "layers": model.layers}))
         samples.append({"requested_budget": budget,
                         "r_phase_deg": item.get('r_phase_deg'), "t_phase_deg": item.get('t_phase_deg'),
-                        **{key: item[key] for key in ("R", "T", "A", "R0", "T0", "actual_orders")}})
+                        **{key: item[key] for key in ("R", "T", "A", "R0", "T0", "actual_orders")},
+                        "orders": item.get("orders", [])})
     a, b = samples[-2:]
-    delta = max(abs(a[key]-b[key]) for key in ("R", "T", "A"))
+    total_delta = max(abs(a[key]-b[key]) for key in ("R", "T", "A"))
+    order_rows = _order_changes(a, b)
+    order_delta = max((row["max_change"] for row in order_rows), default=0.0)
+    requested = []
+    if observables:
+        from observables import observable_spec, observable_value
+        for raw in observables:
+            spec = observable_spec(raw)
+            values = [observable_value(sample, spec) for sample in samples]
+            requested.append({**spec, "values": values,
+                              "change": abs(values[-1]-values[-2]),
+                              "tolerance": float(raw.get("tolerance", tolerance))})
+    requested_delta = max((row["change"] for row in requested), default=0.0)
+    delta = max(total_delta, order_delta, requested_delta)
     distinct_orders = all(samples[i]["actual_orders"] < samples[i+1]["actual_orders"]
                           for i in range(len(samples)-1))
     physical_balance = all(np.isfinite([item[key] for key in ("R", "T", "A")]).all()
                            and all(-1e-4 <= item[key] <= 1+1e-4 for key in ("R", "T", "A"))
                            for item in samples)
-    return {"samples": samples, "max_change": delta, "tolerance": tolerance,
+    return {"samples": samples, "max_change": delta,
+            "max_total_change": total_delta, "max_order_change": order_delta,
+            "max_requested_observable_change": requested_delta,
+            "order_convergence": order_rows, "requested_observables": requested,
+            "tolerance": tolerance,
             "distinct_orders": distinct_orders,
-            "converged": bool(distinct_orders and delta <= tolerance),
+            "converged": bool(distinct_orders and delta <= tolerance and
+                              all(row["change"] <= row["tolerance"] for row in requested)),
             "physical_balance_ok": physical_balance}
 
 
-def grid_convergence(model: StackModel, tolerance=.01) -> dict:
+def grid_convergence(model: StackModel, tolerance=.01,
+                     observables: list[dict] | None = None) -> dict:
     """Compare the requested geometry grid with a grid twice as fine."""
-    if model.grid_size > 128:
-        raise ValueError("Grid convergence requires a base grid of at most 128")
+    if model.grid_size > 256:
+        raise ValueError("Grid convergence requires a base grid of at most 256 so the doubled grid stays within 512")
     a = solve_stack(model)
     b = solve_stack(StackModel(**{**asdict(model), "layers": model.layers,
                                   "grid_size": 2*model.grid_size}))
-    delta = max(abs(a[key]-b[key]) for key in ("R", "T", "A"))
+    total_delta = max(abs(a[key]-b[key]) for key in ("R", "T", "A"))
+    order_rows = _order_changes(a, b)
+    order_delta = max((row["max_change"] for row in order_rows), default=0.0)
+    requested = []
+    if observables:
+        from observables import observable_spec, observable_value
+        for raw in observables:
+            spec = observable_spec(raw)
+            values = [observable_value(sample, spec) for sample in (a, b)]
+            requested.append({**spec, "values": values,
+                              "change": abs(values[-1]-values[-2]),
+                              "tolerance": float(raw.get("tolerance", tolerance))})
+    requested_delta = max((row["change"] for row in requested), default=0.0)
+    delta = max(total_delta, order_delta, requested_delta)
     return {"grid_pair": [model.grid_size, 2*model.grid_size],
             "samples": [{"grid_size": model.grid_size, **{key: a[key] for key in ("R", "T", "A")}},
                         {"grid_size": 2*model.grid_size, **{key: b[key] for key in ("R", "T", "A")}}],
-            "max_change": delta, "tolerance": tolerance,
-            "converged": bool(delta <= tolerance)}
+            "max_change": delta, "max_total_change": total_delta,
+            "max_order_change": order_delta,
+            "max_requested_observable_change": requested_delta,
+            "order_convergence": order_rows, "requested_observables": requested,
+            "tolerance": tolerance,
+            "converged": bool(delta <= tolerance and
+                              all(row["change"] <= row["tolerance"] for row in requested))}
 
 
 def field_validation(model: StackModel, layer_index=0, z_fraction=.5,
                      tolerance=.10) -> dict:
     """Relative RMS sensitivity of |E|² to Fourier and pixel refinement."""
-    if model.grid_size > 128:
-        raise ValueError("Field grid validation requires a base grid of at most 128")
-    if model.order_budget >= 101:
-        raise ValueError("Choose an order budget below 101 for field refinement")
-    high_budget = min(101, model.order_budget+24)
+    if model.grid_size > 256:
+        raise ValueError("Field grid validation requires a base grid of at most 256 so the doubled grid stays within 512")
+    if model.order_budget >= 201:
+        raise ValueError("Choose an order budget below 201 for field refinement")
+    high_budget = min(201, model.order_budget+24)
     base_model = model
     high_model = StackModel(**{**asdict(model), "layers": model.layers,
                                "order_budget": high_budget})
