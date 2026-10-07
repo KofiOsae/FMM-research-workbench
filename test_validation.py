@@ -41,7 +41,8 @@ from coupled_branches import fit_coupled_branches, HC_EV_UM
 from polarization_winding import _charge_from_angles
 from optimization import optimize_geometry
 from resonator_metrics import resonator_metrics
-from observables import evaluate_observable
+from observables import (evaluate_observable, evaluate_named_observables,
+                         design_metric_value)
 from research_validation import diffraction_order_map, linked_observable_sweep, settings_fingerprint
 import materials
 
@@ -207,6 +208,48 @@ class PhysicalValidation(unittest.TestCase):
         self.assertEqual(result["robustness"]["samples"], 3)
         self.assertGreaterEqual(result["robustness"]["worst_loss"],
                                 result["robustness"]["mean_loss"])
+
+    def test_named_observables_and_separate_optical_constraints(self):
+        scattering = {"R": .1, "T": .9, "A": 0, "R0": .1, "T0": .45,
+            "orders": [{"m": 0, "n": 0, "R": .1, "T": .45},
+                       {"m": -1, "n": 0, "R": 0, "T": .44}]}
+        definitions = [
+            {"name": "eta2", "expression": "To(0,0)+To(-1,0)"},
+            {"name": "balance", "expression": "abs(To(0,0)-To(-1,0))/eta2"},
+            {"name": "unwanted", "expression": "T-eta2"},
+        ]
+        values = evaluate_named_observables(scattering, definitions)
+        self.assertAlmostEqual(values["eta2"], .89)
+        self.assertAlmostEqual(values["balance"], .01/.89)
+        self.assertAlmostEqual(values["unwanted"], .01)
+        self.assertAlmostEqual(design_metric_value(scattering,
+            {"observable": "balance"}, definitions), .01/.89)
+
+        base = StackModel(incident_n=1, exit_n=1, wavelength_um=1,
+            order_budget=5, grid_size=16,
+            layers=(Layer(kind="uniform", thickness_um=.1, background_n=1),))
+        result = optimize_geometry(base,
+            [{"path": "layer.0.thickness_um", "lower": .08, "upper": .12}],
+            [{"wavelength_um": 1, "observable": "eta", "goal": "max", "weight": 1}],
+            generations=1, population=4, seed=8, polish=False,
+            observable_definitions=[{"name": "eta", "expression": "T"},
+                                    {"name": "loss", "expression": "1-eta"}],
+            optical_constraints=[{"wavelength_um": 1, "observable": "eta", "lower": .99},
+                                 {"wavelength_um": 1, "observable": "loss", "upper": .01}])
+        self.assertTrue(result["feasible"])
+        self.assertTrue(result["validated"])
+        self.assertEqual(len(result["constraint_results"]), 2)
+        self.assertAlmostEqual(result["design_dashboard"][0]["observables"]["eta"], 1)
+        self.assertEqual(result["trust_validation"][0]["status"], "Validated")
+        infeasible = optimize_geometry(base,
+            [{"path": "layer.0.thickness_um", "lower": .08, "upper": .12}],
+            [{"wavelength_um": 1, "observable": "eta", "goal": "max", "weight": 1}],
+            generations=1, population=4, seed=8, polish=False,
+            observable_definitions=[{"name": "eta", "expression": "T"}],
+            optical_constraints=[{"wavelength_um": 1, "observable": "eta", "upper": .5}])
+        self.assertFalse(infeasible["feasible"])
+        self.assertFalse(infeasible["validated"])
+        self.assertGreater(infeasible["maximum_constraint_violation"], .49)
 
     def test_closed_loop_headless_polarization_winding(self):
         phase = np.linspace(0, 2*np.pi, 16, endpoint=False)

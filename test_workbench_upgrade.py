@@ -160,6 +160,9 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'forward_efficiency',script)
                 self.assertIn(b'Upper/lower coupled-branch composition',script)
                 self.assertIn(b'useTrackedBranches',script)
+                self.assertIn(b'Reusable optical observables',script)
+                self.assertIn(b'optimizerOpticalConstraints',script)
+                self.assertIn(b'Design-result dashboard',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -171,6 +174,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Rayleigh threshold',guide)
                 self.assertIn(b'Match a fiber or Gaussian field',guide)
                 self.assertIn(b'Fit upper and lower coupled branches',guide)
+                self.assertIn(b'Optimize a 50:50 two-order splitter',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)

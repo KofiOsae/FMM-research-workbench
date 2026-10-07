@@ -550,7 +550,10 @@ class Handler(BaseHTTPRequestHandler):
                     int(data.get("seed", 12345)), bool(data.get("polish", True)),
                     int(data.get("robust_samples", 1)), float(data.get("robust_weight", .25)),
                     bool(data.get("convergence_aware", False)),
-                    float(data.get("convergence_tolerance", .01)))
+                    float(data.get("convergence_tolerance", .01)),
+                    observable_definitions=data.get("observables"),
+                    optical_constraints=data.get("optical_constraints"),
+                    constraint_tolerance=float(data.get("constraint_tolerance", 1e-6)))
             elif operation == "bayesian_spectrum":
                 payload = bayesian_spectrum(parse_stack(data["model"]), data["csv"],
                     data["parameters"], float(data["noise_sigma"]), int(data.get("draws", 1000)),
