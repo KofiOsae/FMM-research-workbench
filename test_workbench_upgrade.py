@@ -143,6 +143,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Run from here',script)
                 self.assertIn(b'Straight line',script)
                 self.assertIn(b'materialPreviewColors',script)
+                self.assertIn(b"addEventListener('input',updateLegend)",script)
+                self.assertIn(b'drawImportedMasks();updateLegend()',script)
                 self.assertIn(b'periodic pixel-run screen',script)
                 self.assertIn(b'Export SVG',script)
                 self.assertIn(b'maskBoundarySegments',script)
