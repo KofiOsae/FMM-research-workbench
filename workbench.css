@@ -41,3 +41,5 @@ dialog{width:min(900px,calc(100vw - 32px));max-height:85vh;border:1px solid #b9c
 .focus-choice{display:flex;align-items:center;gap:6px;white-space:nowrap}
 .focus-choice input{width:auto;margin:0}
 [data-custom-expression]{min-width:230px}
+.scope-banner{margin:10px 0 16px;padding:12px 14px;border-left:5px solid #1768a5;border-radius:8px;background:#eef7fc;color:#243d55;line-height:1.45}
+.scope-banner strong{color:#123f66}

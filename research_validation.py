@@ -72,10 +72,32 @@ def adaptive_observable_convergence(model: StackModel, observables: list[dict],
         budgets.append(candidate)
 
 
+VALIDATION_PROFILES = {
+    "exploratory": {"observable_tolerance": 1e-2, "energy_tolerance": 1e-3,
+                    "purpose": "Fast screening; insufficient for a publication claim."},
+    "research": {"observable_tolerance": 1e-3, "energy_tolerance": 1e-4,
+                 "purpose": "Research iteration and candidate selection."},
+    "publication": {"observable_tolerance": 2e-4, "energy_tolerance": 2e-5,
+                    "purpose": "Strict numerical screen for power and diffraction-order observables."},
+}
+
+
 def validation_report(model: StackModel, observables: list[dict] | None = None,
-                      tolerance: float = .01, adaptive: bool = True) -> dict:
+                      tolerance: float = 1e-3, adaptive: bool = True,
+                      profile: str = "research") -> dict:
     model.validate()
-    requested = [observable_spec(item) | {"tolerance": float(item.get("tolerance", tolerance))}
+    profile = str(profile).lower()
+    if profile not in (*VALIDATION_PROFILES, "custom"):
+        raise ValueError("Validation profile must be exploratory, research, publication, or custom")
+    if profile != "custom":
+        tolerance = VALIDATION_PROFILES[profile]["observable_tolerance"]
+        energy_tolerance = VALIDATION_PROFILES[profile]["energy_tolerance"]
+        purpose = VALIDATION_PROFILES[profile]["purpose"]
+    else:
+        energy_tolerance = max(1e-10, tolerance/10)
+        purpose = "User-defined numerical screen. The exported tolerance is part of the method record."
+    requested = [observable_spec(item) | {"tolerance": float(
+        item.get("tolerance", tolerance) if profile == "custom" else tolerance)}
                  for item in (observables or [])]
     fourier = (adaptive_observable_convergence(model, requested, tolerance) if adaptive else
                stack_convergence(model, tolerance=tolerance, observables=requested))
@@ -91,26 +113,31 @@ def validation_report(model: StackModel, observables: list[dict] | None = None,
     balance = abs(result["R"]+result["T"]+result["A"]-1)
     material = {"status": "valid", "message":
                 "Every selected material supplied optical constants at the submitted wavelength; extrapolation is disabled."}
-    checks = {"energy_balance": balance <= max(1e-8, tolerance/10),
+    checks = {"energy_balance": balance <= energy_tolerance,
               "fourier": bool(fourier["converged"] and fourier["physical_balance_ok"]),
               "geometry_grid": bool(grid and grid["converged"]),
               "material_range": True}
     status = "Validated" if all(checks.values()) else "Not converged"
     submitted = asdict(model)
     return {"status": status, "checks": checks, "energy_balance_residual": balance,
+            "acceptance_profile": {"name": profile,
+                "observable_absolute_tolerance": tolerance,
+                "energy_balance_tolerance": energy_tolerance,
+                "purpose": purpose,
+                "scope": "Applies to dimensionless power and diffraction-order observables. Resonance center, linewidth, Q, field maps, modes, and statistical yield require their own quantity-specific stability tests."},
             "fourier": fourier, "geometry_grid": grid, "geometry_grid_error": grid_error,
             "material_validity": material, "result": result,
             "order_map": diffraction_order_map(refined),
             "submitted_model": submitted,
             "submitted_model_sha256": settings_fingerprint(submitted),
-            "interpretation": "Validation follows total power, every retained propagating order, and each requested observable. Passing is a numerical screen for these refinements, not an experimental accuracy guarantee."}
+            "interpretation": "Validation follows total power, every retained propagating order, and each requested observable. Passing is a numerical screen for these refinements, not proof of experimental accuracy or publication readiness by itself."}
 
 
 def linked_observable_sweep(model: StackModel, driver: str, links: list[dict],
                             start: float, stop: float, points: int,
                             observable: dict, goal: str = "max",
                             validate_each: bool = False,
-                            tolerance: float = .01) -> dict:
+                            tolerance: float = 1e-3) -> dict:
     if goal not in ("max", "min"):
         raise ValueError("Sweep goal must be max or min")
     spec = observable_spec(observable)

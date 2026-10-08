@@ -11,4 +11,6 @@ services:
         value: 10000
       - key: PUBLIC_DEMO
         value: "1"
+      - key: FMM_USER_MATERIALS_PATH
+        value: /tmp/fmm-user-materials.json
     autoDeploy: true

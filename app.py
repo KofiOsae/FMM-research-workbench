@@ -45,7 +45,8 @@ from optimization import optimize_geometry
 from bayesian import bayesian_spectrum
 from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
-from mode_coupling import mode_port_coupling
+from mode_coupling import (mode_port_coupling, mode_port_coupling_sweep,
+                           mode_port_coupling_validation)
 from coupled_branches import fit_coupled_branches
 from metasurface import phase_library_and_lens
 from resonator_metrics import resonator_metrics
@@ -79,7 +80,9 @@ def method_provenance(operation: str) -> dict:
         "vector_modes": [{"id":"fallahkhair-2008", "title":"Vector finite difference modesolver for anisotropic dielectric waveguides",
                           "doi":"10.1109/JLT.2008.923643", "applies_to":"full-vector finite-difference modes"}],
         "mode_port_coupling": [{"id":"fallahkhair-2008", "title":"Vector finite difference modesolver for anisotropic dielectric waveguides",
-                                "doi":"10.1109/JLT.2008.923643", "applies_to":"waveguide eigenmodes used for port overlap"}],
+                                "doi":"10.1109/JLT.2008.923643", "applies_to":"waveguide eigenmodes used for port overlap"},
+                               {"id":"snyder-love-1983", "title":"Optical Waveguide Theory",
+                                "applies_to":"mode orthogonality, excitation, and reciprocity projection"}],
         "coupled_branches": [{"id":"hopfield-1958", "title":"Theory of the contribution of excitons to the complex dielectric constant of crystals",
                               "doi":"10.1103/PhysRev.112.1555", "applies_to":"two-oscillator branch composition"}],
         "dipole_ldos": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
@@ -436,11 +439,11 @@ class Handler(BaseHTTPRequestHandler):
                     str(data["driver"]), data.get("links", []), float(data["start"]),
                     float(data["stop"]), int(data["points"]), data["observable"],
                     str(data.get("goal", "max")), bool(data.get("validate_each", False)),
-                    float(data.get("tolerance", .01)))
+                    float(data.get("tolerance", 1e-3)))
             elif operation == "validation_report":
                 payload = validation_report(parse_stack(data["model"]),
-                    data.get("observables", []), float(data.get("tolerance", .01)),
-                    bool(data.get("adaptive", True)))
+                    data.get("observables", []), float(data.get("tolerance", 1e-3)),
+                    bool(data.get("adaptive", True)), str(data.get("profile", "research")))
             elif operation == "diffraction_order_map":
                 payload = diffraction_order_map(parse_stack(data["model"]))
             elif operation == "bands":
@@ -506,11 +509,11 @@ class Handler(BaseHTTPRequestHandler):
                 payload = solve_leaky_mode(parse_stack(data["model"]),
                     float(data["center_um"]), float(data.get("initial_q", 100)))
             elif operation == "materials":
-                payload = material_catalog(float(data["wavelength_um"]))
+                payload = material_catalog(float(data["wavelength_um"]),
+                                           str(data.get("namespace", "")))
             elif operation == "material_import":
-                if os.environ.get("PUBLIC_DEMO", "0") == "1":
-                    raise ValueError("Material import is disabled on the shared public demo. Save the CSV and import it in a local installation.")
-                payload = import_material(data["name"], data["source"], data["csv"])
+                payload = import_material(data["name"], data["source"], data["csv"],
+                                          str(data.get("namespace", "")))
             elif operation == "measurement":
                 payload = compare_or_fit(parse_stack(data["model"]), data["csv"],
                                          int(data["layer_index"]), bool(data.get("fit", False)),
@@ -569,6 +572,21 @@ class Handler(BaseHTTPRequestHandler):
                     int(value) if key == "modes" else float(value))
                     for key, value in data["mode_solver"].items()}
                 payload = mode_port_coupling(mode_inputs, data["source"])
+            elif operation == "mode_port_coupling_sweep":
+                mode_inputs = {key: (str(value) if key in ("boundary", "core_shape") else
+                    int(value) if key == "modes" else float(value))
+                    for key, value in data["mode_solver"].items()}
+                payload = mode_port_coupling_sweep(mode_inputs, data["source"],
+                    str(data["parameter"]), float(data["start"]), float(data["stop"]),
+                    int(data["points"]))
+            elif operation == "mode_port_coupling_validation":
+                mode_inputs = {key: (str(value) if key in ("boundary", "core_shape") else
+                    int(value) if key == "modes" else float(value))
+                    for key, value in data["mode_solver"].items()}
+                payload = mode_port_coupling_validation(mode_inputs, data["source"],
+                    float(data.get("neff_tolerance", 5e-4)),
+                    float(data.get("overlap_tolerance", 5e-3)),
+                    str(data.get("profile", "research")))
             elif operation == "coupled_branches":
                 payload = fit_coupled_branches(data["parameter"], data["branch_1_um"],
                     data["branch_2_um"],

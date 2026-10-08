@@ -36,14 +36,16 @@ from dipole_ldos import dipole_ldos, dipole_ldos_spectrum
 from bayesian import bayesian_spectrum
 from constitutive import constitutive_response
 from vector_modes import solve_vector_modes
-from mode_coupling import mode_port_coupling
+from mode_coupling import (mode_port_coupling, mode_port_coupling_sweep,
+                           mode_port_coupling_validation)
 from coupled_branches import fit_coupled_branches, HC_EV_UM
 from polarization_winding import _charge_from_angles
 from optimization import optimize_geometry
 from resonator_metrics import resonator_metrics
 from observables import (evaluate_observable, evaluate_named_observables,
                          design_metric_value)
-from research_validation import diffraction_order_map, linked_observable_sweep, settings_fingerprint
+from research_validation import (diffraction_order_map, linked_observable_sweep,
+                                 settings_fingerprint, validation_report)
 import materials
 
 
@@ -122,7 +124,7 @@ class PhysicalValidation(unittest.TestCase):
 
     def test_mode_port_overlap_recovers_identical_imported_mode(self):
         settings = dict(wavelength_um=1.55, core_width_um=.55,
-            core_height_um=.22, core_n=3.47, substrate_n=1.44,
+            core_height_um=.40, core_n=3.47, substrate_n=1.44,
             cladding_n=1, padding_x_um=.55, padding_top_um=.55,
             padding_bottom_um=.55, mesh_um=.055, modes=1, guess=3.3,
             boundary="0000", core_shape="rectangle", sidewall_angle_deg=90)
@@ -146,6 +148,66 @@ class PhysicalValidation(unittest.TestCase):
         self.assertTrue(result["quantity_status"]["power_overlap_available"])
         self.assertGreater(result["modes"][0]["power_overlap"]["forward_efficiency"], 0)
         self.assertLess(result["modes"][0]["power_overlap"]["forward_efficiency"], 1)
+        self.assertEqual(np.shape(result["best_mode_E2_normalized"]),
+                         np.shape(result["source_E2_normalized"]))
+        self.assertEqual(np.shape(result["overlap_density_normalized"]),
+                         np.shape(result["source_E2_normalized"]))
+        self.assertIn("forward_fraction_in_solved_modes",
+                      result["solved_mode_power_accounting"])
+
+    def test_uniform_port_source_sweep_reuses_mode_basis(self):
+        settings = dict(wavelength_um=1.55, core_width_um=.55,
+            core_height_um=.40, core_n=3.47, substrate_n=1.44,
+            cladding_n=1, padding_x_um=.55, padding_top_um=.55,
+            padding_bottom_um=.55, mesh_um=.08, modes=1, guess=3.3,
+            boundary="0000", core_shape="rectangle", sidewall_angle_deg=90)
+        source = {"type":"gaussian", "waist_x_um":.8, "waist_y_um":.8,
+                  "center_y_um":.11, "polarization_angle_deg":0,
+                  "medium_n":1.44}
+        result = mode_port_coupling_sweep(settings, source, "waist_x_um",
+                                          .6, 1.0, 3)
+        self.assertTrue(result["mode_basis_reused"])
+        self.assertEqual(len(result["rows"]), 3)
+        self.assertIn(result["best"], result["rows"])
+
+    def test_uniform_port_mesh_validation_tracks_physical_mode(self):
+        settings = dict(wavelength_um=1.55, core_width_um=.55,
+            core_height_um=.40, core_n=3.47, substrate_n=1.44,
+            cladding_n=1, padding_x_um=.55, padding_top_um=.55,
+            padding_bottom_um=.55, mesh_um=.08, modes=1, guess=3.3,
+            boundary="0000", core_shape="rectangle", sidewall_angle_deg=90)
+        source = {"type":"gaussian", "waist_x_um":.8, "waist_y_um":.8,
+                  "center_y_um":.11, "polarization_angle_deg":0,
+                  "medium_n":1.44}
+        result = mode_port_coupling_validation(settings, source, .1, .2, "custom")
+        self.assertIn("effective_index_change", result)
+        self.assertEqual(result["tracked_mode"]["coarse_mode"], 1)
+        self.assertEqual(result["tracked_mode"]["refined_mode"], 1)
+        self.assertEqual(result["acceptance_profile"]["name"], "custom")
+
+    def test_mode_port_publication_profile_enforces_strict_limits(self):
+        settings = dict(wavelength_um=1.55, core_width_um=.55, core_height_um=.40,
+            core_n=3.47, substrate_n=1.44, cladding_n=1,
+            padding_x_um=.55, padding_top_um=.55, padding_bottom_um=.55,
+            mesh_um=.08, modes=1, guess=3.3, boundary="0000",
+            core_shape="rectangle", sidewall_angle_deg=90)
+        source = {"type":"gaussian", "waist_x_um":.8, "waist_y_um":.8,
+                  "center_y_um":.11, "polarization_angle_deg":0,
+                  "medium_n":1.44}
+        result = mode_port_coupling_validation(settings, source, .1, .2, "publication")
+        self.assertEqual(result["acceptance_profile"]["effective_index_tolerance"], 1e-4)
+        self.assertEqual(result["acceptance_profile"]["overlap_absolute_tolerance"], 1e-3)
+
+    def test_publication_validation_profile_is_machine_readable(self):
+        model = StackModel(layers=(Layer(kind="uniform", thickness_um=.125,
+                           background_material="dielectric", background_n=2),))
+        report = validation_report(model, [{"quantity":"expression", "expression":"T",
+                                            "label":"T", "tolerance":.1}],
+                                   tolerance=.1, adaptive=False, profile="publication")
+        profile = report["acceptance_profile"]
+        self.assertEqual(profile["name"], "publication")
+        self.assertEqual(profile["observable_absolute_tolerance"], 2e-4)
+        self.assertEqual(report["fourier"]["requested_observables"][0]["tolerance"], 2e-4)
 
     def test_coupled_branch_fit_recovers_splitting_and_composition(self):
         parameter = np.linspace(-1, 1, 11)
@@ -497,6 +559,23 @@ class PhysicalValidation(unittest.TestCase):
                     materials.material_n(record["key"], 1.1)
                 with self.assertRaises(ValueError):
                     materials.import_material("bad", "source", "wavelength_um,n,k\n.5,2,-1\n1,2,0\n")
+
+    def test_browser_material_namespaces_are_isolated_in_public_catalog(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.object(materials, "USER_DATA", Path(temporary) / "custom.json"):
+                a = materials.import_material("Test film", "source A",
+                    "wavelength_um,n,k\n0.5,2,0\n1.0,2.2,0\n", namespace="client-a")
+                b = materials.import_material("Test film", "source B",
+                    "wavelength_um,n,k\n0.5,1.8,0\n1.0,1.9,0\n", namespace="client-b")
+                self.assertNotEqual(a["key"], b["key"])
+                with patch.dict("os.environ", {"PUBLIC_DEMO":"1"}):
+                    keys_a = {row["key"] for row in material_catalog(.75, "client-a")["materials"]}
+                    keys_b = {row["key"] for row in material_catalog(.75, "client-b")["materials"]}
+                    anonymous = {row["key"] for row in material_catalog(.75)["materials"]}
+                self.assertIn(a["key"], keys_a)
+                self.assertNotIn(b["key"], keys_a)
+                self.assertIn(b["key"], keys_b)
+                self.assertFalse(any(key.startswith("custom:") for key in anonymous))
 
     def test_measured_uniform_film_fit_and_invalid_units(self):
         truth = StackModel(layers=(Layer(kind="uniform", thickness_um=.26,

@@ -21,7 +21,7 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
                       seed: int = 12345, polish: bool = True,
                       robust_samples: int = 1, robust_weight: float = .25,
                       convergence_aware: bool = False,
-                      convergence_tolerance: float = .01,
+                      convergence_tolerance: float = 1e-3,
                       observable_definitions: list[dict] | None = None,
                       optical_constraints: list[dict] | None = None,
                       constraint_tolerance: float = 1e-6) -> dict:
@@ -207,12 +207,13 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
                       "label": item["label"], "tolerance": convergence_tolerance}
                      for item in requested_items if item["wavelength_um"] == wavelength]
         trust = validation_report(point, requested, tolerance=convergence_tolerance,
-                                  adaptive=True)
+                                  adaptive=True, profile="custom")
         checks.append({"wavelength_um": wavelength, "status": trust["status"],
             "checks": trust["checks"], "fourier_change": trust["fourier"]["max_change"],
             "grid_change": (trust["geometry_grid"] or {}).get("max_change"),
             "submitted_model_sha256": trust["submitted_model_sha256"],
             "requested_observables": trust["fourier"].get("requested_observables", []),
+            "acceptance_profile": trust["acceptance_profile"],
             "order_map": trust["order_map"]})
     feasible = bool(best_evaluation["feasible"])
     trust_validated = all(row["status"] == "Validated" for row in checks)

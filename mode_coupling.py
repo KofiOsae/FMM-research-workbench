@@ -126,9 +126,9 @@ def _power_overlaps(source: dict[str, np.ndarray], mode: dict[str, np.ndarray],
             "backward_efficiency": float(abs(backward)**2)}
 
 
-def mode_port_coupling(mode_solver: dict, source: dict) -> dict:
-    """Solve the cross section and project one supplied port field onto its modes."""
-    solved = solve_vector_modes(**mode_solver)
+def _project_on_solved(solved: dict, mode_solver: dict, source: dict,
+                       include_maps: bool = True) -> dict:
+    """Project a source on one already-solved, uniformly normalized port basis."""
     x, y = np.asarray(solved["x_um"]), np.asarray(solved["y_um"])
     source_type = str(source.get("type", "gaussian"))
     if source_type in ("gaussian", "super_gaussian"):
@@ -145,10 +145,11 @@ def mode_port_coupling(mode_solver: dict, source: dict) -> dict:
         raise ValueError("Illumination type must be gaussian, super_gaussian, or imported")
     has_power_fields = "Hx" in present and "Hy" in present
     dx, dy = solved["mesh"]["dx_um"], solved["mesh"]["dy_um"]
-    rows = []
+    rows, mode_fields = [], []
     for item in solved["modes"]:
         mode = {name: _complex_field(item["fields"], name)
                 for name in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")}
+        mode_fields.append(mode)
         amplitude, electric_efficiency = _electric_overlap(source_fields, mode, dx, dy)
         power = _power_overlaps(source_fields, mode, dx, dy) if has_power_fields else None
         rows.append({"mode": item["mode"], "n_eff": item["n_eff"],
@@ -163,14 +164,125 @@ def mode_port_coupling(mode_solver: dict, source: dict) -> dict:
                if best_key and row["power_overlap"] else row["electric_profile_overlap"])
     intensity = sum(abs(source_fields[name])**2 for name in ("Ex", "Ey", "Ez"))
     maximum = max(float(np.max(intensity)), 1e-300)
-    return {"source_type": source_type, "source_components": present,
+    result = {"source_type": source_type, "source_components": present,
             "x_um": x.tolist(), "y_um": y.tolist(),
-            "source_E2_normalized": (intensity/maximum).real.tolist(),
             "modes": rows, "best_mode": best["mode"],
             "mesh": solved["mesh"], "geometry": solved["geometry"],
             "interpolation": interpolation,
+            "formalism": {
+                "electric_profile": "|integral E_source dot E_mode* dA|^2 / (integral |E_source|^2 dA integral |E_mode|^2 dA)",
+                "directional_power": "reciprocity projection from the transverse E and H fields on one uniform port plane",
+                "reference": "A. W. Snyder and J. D. Love, Optical Waveguide Theory, mode orthogonality and excitation chapters; vector modes follow Fallahkhair, Li, and Murphy, JLT 26, 1423 (2008), DOI 10.1109/JLT.2008.923643"},
             "quantity_status": {
                 "power_overlap_available": has_power_fields,
                 "electric_profile_overlap": "Normalized complex electric-field profile and polarization overlap; it is not a propagated device efficiency.",
                 "power_overlap": "Reciprocity projection on this port plane. It is a modal coupling efficiency only when the imported/analytic field is a physically normalized field at this same uniform waveguide port."},
             "device_limit": "No finite grating, fiber-to-chip propagation, apodization, substrate leakage, or transition loss is included. Multiply neither overlap by a diffraction efficiency without a validated common port normalization and finite-device model."}
+    if has_power_fields:
+        forward = float(sum((row["power_overlap"] or {}).get("forward_efficiency", 0)
+                            for row in rows))
+        backward = float(sum((row["power_overlap"] or {}).get("backward_efficiency", 0)
+                             for row in rows))
+        result["solved_mode_power_accounting"] = {
+            "forward_fraction_in_solved_modes": forward,
+            "forward_unresolved_or_radiation_fraction": max(0.0, 1-forward),
+            "backward_projection_sum": backward,
+            "forward_sum_within_unit_interval": forward <= 1.0+5e-3,
+            "note": "The unresolved fraction includes radiation, continuum fields, modes not requested, and numerical error. Backward projection is a direction diagnostic and is not added to the forward budget."}
+    if include_maps:
+        best_index = next(i for i, row in enumerate(rows) if row["mode"] == best["mode"])
+        best_fields = mode_fields[best_index]
+        mode_intensity = sum(abs(best_fields[name])**2 for name in ("Ex", "Ey", "Ez"))
+        overlap_density = abs(sum(source_fields[name]*np.conj(best_fields[name])
+                                  for name in ("Ex", "Ey", "Ez")))
+        result["source_E2_normalized"] = (intensity/maximum).real.tolist()
+        result["best_mode_E2_normalized"] = (mode_intensity/max(float(np.max(mode_intensity)), 1e-300)).real.tolist()
+        result["overlap_density_normalized"] = (overlap_density/max(float(np.max(overlap_density)), 1e-300)).real.tolist()
+        result["map_normalization"] = "Each panel is normalized to its own maximum; use the reported overlap and power values for quantitative comparison."
+    return result
+
+
+def mode_port_coupling(mode_solver: dict, source: dict) -> dict:
+    """Solve the cross section and project one supplied port field onto its modes."""
+    solved = solve_vector_modes(**mode_solver)
+    return _project_on_solved(solved, mode_solver, source, include_maps=True)
+
+
+def mode_port_coupling_sweep(mode_solver: dict, source: dict, parameter: str,
+                             start: float, stop: float, points: int) -> dict:
+    """Screen one source parameter while reusing one solved waveguide basis."""
+    allowed = {"waist_x_um", "waist_y_um", "center_x_um", "center_y_um",
+               "theta_deg", "phi_deg", "polarization_angle_deg"}
+    if parameter not in allowed:
+        raise ValueError("Unsupported port sweep parameter")
+    if source.get("type", "gaussian") not in ("gaussian", "super_gaussian"):
+        raise ValueError("Automated port sweeps require an analytic Gaussian or super-Gaussian source")
+    if not 3 <= int(points) <= 41 or not np.isfinite([start, stop]).all() or stop <= start:
+        raise ValueError("Use 3–41 sweep points and increasing finite limits")
+    solved = solve_vector_modes(**mode_solver)
+    values = np.linspace(float(start), float(stop), int(points))
+    rows = []
+    for value in values:
+        settings = {**source, parameter: float(value)}
+        projected = _project_on_solved(solved, mode_solver, settings, include_maps=False)
+        best = next(row for row in projected["modes"] if row["mode"] == projected["best_mode"])
+        rows.append({"value": float(value), "best_mode": projected["best_mode"],
+                     "electric_profile_overlap": best["electric_profile_overlap"],
+                     "forward_efficiency": None if best["power_overlap"] is None else
+                        best["power_overlap"]["forward_efficiency"],
+                     "all_modes": [{"mode": row["mode"],
+                                    "electric_profile_overlap": row["electric_profile_overlap"],
+                                    "forward_efficiency": None if row["power_overlap"] is None else
+                                        row["power_overlap"]["forward_efficiency"]}
+                                   for row in projected["modes"]]})
+    metric = "forward_efficiency" if rows[0]["forward_efficiency"] is not None else "electric_profile_overlap"
+    best_row = max(rows, key=lambda row: row[metric])
+    return {"parameter": parameter, "start": float(start), "stop": float(stop),
+            "points": int(points), "metric": metric, "rows": rows,
+            "best": best_row, "mode_basis_reused": True,
+            "interpretation": "This is a source-to-uniform-port matching sweep. The waveguide eigenbasis is solved once because geometry and wavelength remain fixed; it is not a finite-grating propagation sweep."}
+
+
+def mode_port_coupling_validation(mode_solver: dict, source: dict,
+                                  neff_tolerance: float = 5e-4,
+                                  overlap_tolerance: float = 5e-3,
+                                  profile: str = "research") -> dict:
+    """Repeat the port projection at half mesh and track the nearest physical mode."""
+    profiles = {"exploratory": (5e-3, 2e-2),
+                "research": (5e-4, 5e-3),
+                "publication": (1e-4, 1e-3)}
+    profile = str(profile).lower()
+    if profile not in (*profiles, "custom"):
+        raise ValueError("Mode validation profile must be exploratory, research, publication, or custom")
+    if profile != "custom":
+        neff_tolerance, overlap_tolerance = profiles[profile]
+    if not (0 < neff_tolerance <= .1 and 0 < overlap_tolerance <= .25):
+        raise ValueError("Mode validation tolerances must be positive and physically bounded")
+    coarse = mode_port_coupling(mode_solver, source)
+    refined_inputs = {**mode_solver, "mesh_um": float(mode_solver["mesh_um"])/2}
+    refined = mode_port_coupling(refined_inputs, source)
+    coarse_row = next(row for row in coarse["modes"] if row["mode"] == coarse["best_mode"])
+    target_neff = coarse_row["n_eff"]["real"]
+    target_te = coarse_row["te_like_fraction"]
+    refined_row = min(refined["modes"], key=lambda row:
+                      abs(row["n_eff"]["real"]-target_neff)+.05*abs(row["te_like_fraction"]-target_te))
+    metric = "forward_efficiency" if coarse_row["power_overlap"] is not None else "electric_profile_overlap"
+    coarse_value = (coarse_row["power_overlap"][metric] if coarse_row["power_overlap"] is not None
+                    else coarse_row[metric])
+    refined_value = (refined_row["power_overlap"][metric] if refined_row["power_overlap"] is not None
+                     else refined_row[metric])
+    neff_change = abs(refined_row["n_eff"]["real"]-target_neff)
+    overlap_change = abs(refined_value-coarse_value)
+    passed = neff_change <= neff_tolerance and overlap_change <= overlap_tolerance
+    return {"coarse": coarse, "refined": refined,
+            "acceptance_profile": {"name": profile,
+                "effective_index_tolerance": neff_tolerance,
+                "overlap_absolute_tolerance": overlap_tolerance,
+                "scope": "Half-mesh stability of the tracked uniform-port mode and source overlap; padding and mode-count convergence remain separate checks."},
+            "tracked_mode": {"coarse_mode": coarse_row["mode"], "refined_mode": refined_row["mode"],
+                             "tracking_basis": "nearest effective index with TE-like-fraction tie breaking"},
+            "metric": metric, "coarse_value": coarse_value, "refined_value": refined_value,
+            "effective_index_change": neff_change, "overlap_change": overlap_change,
+            "tolerances": {"effective_index": neff_tolerance, "overlap": overlap_tolerance},
+            "passed": bool(passed),
+            "scope": "Mesh refinement certifies the uniform-port eigenmode projection only. Domain padding, mode count, imported-field sampling, and any finite-device scattering require separate checks."}

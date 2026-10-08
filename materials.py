@@ -1,6 +1,7 @@
 """Measured optical constants with explicit wavelength coverage (µm)."""
 
 import csv
+import hashlib
 import json
 import re
 import threading
@@ -13,7 +14,8 @@ import numpy as np
 
 DATA = Path(__file__).with_name("gold_johnson_christy.csv")
 SILICON_DATA = Path(__file__).with_name("silicon_green_2008.yml")
-USER_DATA = Path(__file__).with_name("user_materials.json")
+USER_DATA = Path(os.environ.get("FMM_USER_MATERIALS_PATH",
+                                str(Path(__file__).with_name("user_materials.json"))))
 _material_lock = threading.RLock()
 MATERIAL_INFO = {
     "air": ("Air (n = 1 approximation)", "All model wavelengths", "Idealized constant index"),
@@ -91,7 +93,7 @@ def _user_materials() -> dict:
         return json.loads(USER_DATA.read_text(encoding="utf-8"))
 
 
-def import_material(name: str, source: str, csv_text: str) -> dict:
+def import_material(name: str, source: str, csv_text: str, namespace: str = "") -> dict:
     """Store a local, explicitly unit-labelled wavelength,n,k table."""
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 60:
         raise ValueError("Material name must contain 1–60 characters")
@@ -120,8 +122,12 @@ def import_material(name: str, source: str, csv_text: str) -> dict:
         values.append([wavelength, n, k])
     if len(values) < 2:
         raise ValueError("Provide at least two wavelength rows")
-    key = "custom:" + slug
+    namespace = str(namespace or "")[:128]
+    suffix = ("-"+hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:10]
+              if namespace else "")
+    key = "custom:" + slug + suffix
     with _material_lock:
+        USER_DATA.parent.mkdir(parents=True, exist_ok=True)
         records = _user_materials()
         records[key] = {"name": name.strip(), "source": source.strip(), "rows": values}
         temporary = USER_DATA.with_suffix(".tmp")
@@ -338,13 +344,19 @@ def material_energy_terms(name: str, wavelength_um: float,
             "weak_loss_valid": valid}
 
 
-def material_catalog(wavelength_um: float) -> dict:
+def material_catalog(wavelength_um: float, namespace: str = "") -> dict:
     """Optical properties and provenance for the novice-facing material inspector."""
     if not np.isfinite(wavelength_um) or wavelength_um <= 0:
         raise ValueError("Inspection wavelength must be finite and positive")
     items = []
+    records = _user_materials()
+    if namespace:
+        suffix = "-"+hashlib.sha256(str(namespace)[:128].encode("utf-8")).hexdigest()[:10]
+        records = {key: value for key, value in records.items() if key.endswith(suffix)}
+    elif os.environ.get("PUBLIC_DEMO", "0") == "1":
+        records = {}
     custom = {key: (item["name"], f"{item['rows'][0][0]}–{item['rows'][-1][0]} µm",
-                    item["source"]) for key, item in _user_materials().items()}
+                    item["source"]) for key, item in records.items()}
     for key, (label, range_label, source) in {**MATERIAL_INFO, **custom}.items():
         if key.startswith("custom:"):
             category = "Imported"

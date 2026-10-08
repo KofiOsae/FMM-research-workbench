@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
     PORT=7860 \
     PUBLIC_DEMO=1 \
+    FMM_USER_MATERIALS_PATH=/tmp/fmm-user-materials.json \
     MPLCONFIGDIR=/tmp/matplotlib
 
 WORKDIR /app
