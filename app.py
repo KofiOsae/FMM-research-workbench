@@ -52,6 +52,8 @@ from metasurface import phase_library_and_lens
 from resonator_metrics import resonator_metrics
 from research_validation import (diffraction_order_map, linked_observable_sweep,
                                  settings_fingerprint, validation_report)
+from finite_grating import (FiniteGratingModel, solve_finite_grating,
+                            validate_finite_grating)
 
 
 ROOT = Path(__file__).parent
@@ -83,6 +85,12 @@ def method_provenance(operation: str) -> dict:
                                 "doi":"10.1109/JLT.2008.923643", "applies_to":"waveguide eigenmodes used for port overlap"},
                                {"id":"snyder-love-1983", "title":"Optical Waveguide Theory",
                                 "applies_to":"mode orthogonality, excitation, and reciprocity projection"}],
+        "finite_grating_coupler": [{"id":"taillaert-2006", "title":"Grating couplers for coupling between optical fibers and nanophotonic waveguides",
+                                     "doi":"10.1143/JJAP.45.6071", "applies_to":"finite grating-coupler device physics"},
+                                    {"id":"snyder-love-1983", "title":"Optical Waveguide Theory",
+                                     "applies_to":"guided-mode normalization and reciprocity"},
+                                    {"id":"oskooi-2010", "title":"MEEP: A flexible free-software package for electromagnetic simulations by the FDTD method",
+                                     "doi":"10.1016/j.cpc.2009.11.008", "applies_to":"finite-domain absorbing-boundary validation context"}],
         "coupled_branches": [{"id":"hopfield-1958", "title":"Theory of the contribution of excitons to the complex dielectric constant of crystals",
                               "doi":"10.1103/PhysRev.112.1555", "applies_to":"two-oscillator branch composition"}],
         "dipole_ldos": [{"id":"novotny-hecht", "title":"Principles of Nano-Optics, planar Green tensors",
@@ -587,6 +595,10 @@ class Handler(BaseHTTPRequestHandler):
                     float(data.get("neff_tolerance", 5e-4)),
                     float(data.get("overlap_tolerance", 5e-3)),
                     str(data.get("profile", "research")))
+            elif operation == "finite_grating_coupler":
+                payload = solve_finite_grating(FiniteGratingModel(**data["model"]))
+            elif operation == "finite_grating_validation":
+                payload = validate_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "coupled_branches":
                 payload = fit_coupled_branches(data["parameter"], data["branch_1_um"],
                     data["branch_2_um"],

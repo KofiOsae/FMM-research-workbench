@@ -171,6 +171,9 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Reusable optical observables',script)
                 self.assertIn(b'optimizerOpticalConstraints',script)
                 self.assertIn(b'Design-result dashboard',script)
+                self.assertIn(b'Finite grating',script)
+                self.assertIn(b'finite_grating_coupler',script)
+                self.assertIn(b'runFiniteGrating',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -186,6 +189,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Optimize a 50:50 two-order splitter',guide)
                 self.assertIn(b'From a physical claim to a publication package',guide)
                 self.assertIn(b'Publication uses 2&times;10<sup>-4</sup>',guide)
+                self.assertIn(b'Calculate finite grating-to-waveguide efficiency',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)

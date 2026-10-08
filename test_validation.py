@@ -46,10 +46,33 @@ from observables import (evaluate_observable, evaluate_named_observables,
                          design_metric_value)
 from research_validation import (diffraction_order_map, linked_observable_sweep,
                                  settings_fingerprint, validation_report)
+from finite_grating import FiniteGratingModel, solve_finite_grating
 import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_finite_grating_uniform_waveguide_power_control(self):
+        result = solve_finite_grating(FiniteGratingModel(periods=2, fill_factor=.999,
+            etch_depth_um=.01, mesh_um=.08, left_padding_um=1,
+            right_padding_um=1, top_padding_um=1, substrate_depth_um=1,
+            absorber_um=.3))
+        power = result["efficiencies"]
+        self.assertGreater(power["residual_forward_waveguide"], .97)
+        self.assertLess(abs(power["numerical_or_absorber_residual"]), .03)
+        self.assertLess(power["target_free_space_mode"], power["upward_radiation"]+1e-12)
+
+    def test_finite_grating_reports_closed_device_channels(self):
+        result = solve_finite_grating(FiniteGratingModel(periods=4, mesh_um=.08,
+            left_padding_um=1.2, right_padding_um=1.2, top_padding_um=1.2,
+            substrate_depth_um=1.2, absorber_um=.35))
+        power = result["efficiencies"]
+        self.assertLess(abs(power["numerical_or_absorber_residual"]), .05)
+        self.assertGreater(power["upward_radiation"], 0)
+        self.assertGreater(power["substrate_radiation"], 0)
+        self.assertGreater(power["back_reflection"], 0)
+        self.assertLessEqual(power["target_free_space_mode"], power["upward_radiation"]*1.01)
+        self.assertIn("reciprocal", result["reciprocity_statement"].lower())
+
     def test_custom_mask_resamples_with_documented_orientation(self):
         source = bytearray(8 * 8)
         source[0] = 255

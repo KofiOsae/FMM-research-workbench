@@ -20,7 +20,7 @@ is valid only after a common normalization and a derivation showing that all
 multiple scattering, radiation, substrate, reflection, and transition channels
 are represented.
 
-## 2. Uniform-port formalism implemented now
+## 2. Uniform-port formalism
 
 Let the transverse port plane have normal \(\hat z\).  For a supplied field
 \((\mathbf E_s,\mathbf H_s)\) and a normalized mode
@@ -84,12 +84,16 @@ The reported directional efficiencies are \(|a_m^\pm|^2\).
 8. Save the project and export the projection JSON.  It includes the equations,
    mode table, solved-mode accounting, source screening, and mesh certificate.
 
-## 4. Required finite-device formulation
+## 4. Finite-device formulation implemented now
 
-A finite grating-coupler solver must contain a source plane, finite etched or
-deposited grating, substrate, transition, uniform output waveguide, radiation
-boundaries or perfectly matched layers, and normalized modal ports.  Its main
-observable is
+The **Finite grating coupler** workspace implements a two-dimensional scalar
+TE finite-difference frequency-domain calculation. It launches the normalized
+fundamental output-waveguide mode toward a finite, partially or fully etched
+grating. Radiation into a selected free-space Gaussian mode is converted to
+the reverse illumination-to-waveguide efficiency by Lorentz reciprocity. The
+domain contains a finite grating, substrate, uniform output waveguide, graded
+complex-coordinate absorbers, and normalized modal and radiation monitors.
+Its main observable is
 
 \[
 \eta_{\mathrm{TE0}}^+=\frac{P_{\mathrm{TE0}}^+}{P_{\mathrm{source,in}}}.
@@ -105,10 +109,18 @@ satisfy
 +P_\mathrm{up}+P_\mathrm{sub}+A+P_\mathrm{other}+\epsilon_\mathrm{num}.
 \]
 
-The first benchmark should be a two-dimensional invariant grating coupler.
-Only after mesh, PML separation, port position, device length, and reciprocity
-checks pass should the module be extended to fully three-dimensional finite
-width structures.
+The interface reports target-mode efficiency, insertion loss, upward and
+substrate radiation, residual forward guided power, back-reflection,
+directionality, accounted power, and numerical/absorber residual. Its
+validation command independently changes mesh spacing, absorber strength, and
+all domain paddings. A publication claim also requires wavelength sampling,
+monitor-position checks, and comparison with an independent solver or
+published benchmark.
+
+This initial solver is restricted to reciprocal, isotropic, lossless 2D TE
+structures invariant across their width. It does not yet support full-vector
+3D focusing gratings, arbitrary finite-width masks, material absorption, or
+several output modes. Those limitations are explicit in every result export.
 
 ## 5. Design variables and research outputs
 
