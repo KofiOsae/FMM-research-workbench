@@ -16,6 +16,8 @@ from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
 from bands import BandModel, full_zone_gaps
 from sweep import diffraction_order_sweep
+from finite_grating import FiniteGratingModel, solve_finite_grating
+from finite_grating_bidirectional import reciprocity_certificate
 
 
 class UpgradeTests(unittest.TestCase):
@@ -88,6 +90,21 @@ class UpgradeTests(unittest.TestCase):
         last=result['rows'][-1]
         self.assertAlmostEqual(sum(o['R'] for o in last['orders']),last['R'],places=10)
         self.assertAlmostEqual(sum(o['T'] for o in last['orders']),last['T'],places=10)
+
+    def test_finite_grating_has_two_independent_reciprocal_sources(self):
+        model=FiniteGratingModel(mesh_um=.1,periods=4,left_padding_um=1,
+            right_padding_um=1.2,top_padding_um=1.2,substrate_depth_um=1.2,
+            absorber_um=.3,target_waist_um=1)
+        incoming=solve_finite_grating(replace(model,excitation='fiber'))
+        self.assertEqual(incoming['formulation']['excitation'],
+                         'gaussian_port_to_grating_to_waveguide')
+        self.assertLess(incoming['formulation']['reference_reproduction_relative_error'],1e-10)
+        self.assertIn('incident_Ey2',incoming['field'])
+        self.assertIn('scattered_Ey2',incoming['field'])
+        certificate=reciprocity_certificate(model)
+        self.assertLess(certificate['relative_magnitude_error'],.1)
+        self.assertGreater(certificate['forward_complex_coefficient']['magnitude'],0)
+        self.assertGreater(certificate['reverse_complex_coefficient']['magnitude'],0)
 
     def wait(self,key):
         deadline=time.monotonic()+3
@@ -169,7 +186,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'finite-grid-2026-10-09')
+                self.assertEqual(health['version'],'bidirectional-grating-2026-10-10')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
@@ -213,6 +230,9 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'finite_grating_coupler',script)
                 self.assertIn(b'runFiniteGrating',script)
                 self.assertIn(b'finite_grating_benchmark',script)
+                self.assertIn(b'finite_grating_reciprocity',script)
+                self.assertIn(b'Gaussian port',script)
+                self.assertIn(b'incident_Ey2',script)
                 self.assertIn(b'runFgSpectrum',script)
                 self.assertIn(b'runFgOptimize',script)
                 self.assertIn(b'runFgTolerance',script)
@@ -252,7 +272,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Optimize a 50:50 two-order splitter',guide)
                 self.assertIn(b'From a physical claim to a publication package',guide)
                 self.assertIn(b'Publication uses 2&times;10<sup>-4</sup>',guide)
-                self.assertIn(b'Calculate waveguide-to-grating target-mode efficiency',guide)
+                self.assertIn(b'Calculate grating coupling in both reciprocal directions',guide)
                 self.assertIn(b'Research map for each capability',guide)
                 self.assertIn(b'Marchetti et al.',guide)
             with urlopen(base+'/') as response:

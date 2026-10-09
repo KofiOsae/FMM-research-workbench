@@ -1,9 +1,10 @@
-"""Two-dimensional finite grating out-coupling by scalar TE FDFD.
+"""Two-dimensional bidirectional finite grating coupling by scalar TE FDFD.
 
-The implemented source launches a normalized bound waveguide mode toward a
-finite grating.  A target-beam overlap is reported for that out-going field.
-Lorentz reciprocity motivates a reverse-coupling comparison, but a genuine
-free-space incident solve is deliberately not claimed by this module.
+The solver supports two independent sources on one physical model: a bound
+waveguide mode and a downward Gaussian angular spectrum.  The free-space
+source is a discrete equivalent current obtained by applying a homogeneous
+cladding operator to the desired incident field.  A separate homogeneous
+reference solve supplies incident-power normalization and the scattered field.
 
 The time convention is exp(-i omega t).  With E = y-hat Ey, the solved equation
 is (d_x^2 + d_z^2 + k0^2 epsilon_r) Ey = source for non-magnetic, isotropic
@@ -25,6 +26,7 @@ import os
 
 @dataclass(frozen=True)
 class FiniteGratingModel:
+    excitation: str = "waveguide"
     wavelength_um: float = 1.55
     core_n: float = 3.48
     substrate_n: float = 1.444
@@ -87,6 +89,8 @@ class FiniteGratingModel:
             raise ValueError("Use 2–9 subpixel samples per axis")
         if abs(self.target_angle_deg) >= 85 or self.target_waist_um <= 0:
             raise ValueError("Target angle must be below 85° and target waist must be positive")
+        if self.excitation not in ("waveguide", "fiber"):
+            raise ValueError("Excitation must be 'waveguide' or 'fiber'")
 
 
 def finite_grid_limit() -> int:
@@ -266,6 +270,9 @@ def _angular_power(field, j, x, z, n, k0, upward=True):
 
 
 def solve_finite_grating(model: FiniteGratingModel) -> dict:
+    if model.excitation == "fiber":
+        from finite_grating_bidirectional import solve_fiber_incident
+        return solve_fiber_incident(model)
     model.validate(); x,z=_axes(model); dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
     eps,reference=_permittivity(model,x,z); k0=2*np.pi/model.wavelength_um
     beta,phi=_te_mode(reference,z,k0)
@@ -304,7 +311,8 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
     target_spectrum=dx*np.fft.fftshift(np.fft.fft(np.fft.ifftshift(target)))
     target_norm=float(np.sum(kz[prop]*abs(target_spectrum[prop])**2)*dk/(2*np.pi))
     overlap=np.sum(kz[prop]*np.conj(target_spectrum[prop])*up[prop])*dk/(2*np.pi)
-    target_eff=float(abs(overlap)**2/(target_norm*incident_power)) if target_norm else 0
+    coefficient=overlap/np.sqrt(max(target_norm*incident_power,1e-30))
+    target_eff=float(abs(coefficient)**2) if target_norm else 0
     accounted=residual_guided+back_reflection+upward+substrate
     stride=max(1,int(max(x.size,z.size)/240))
     sampled=total[::stride,::stride]
@@ -334,12 +342,16 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
                 "device_core_fraction":port_core_fraction,
                 "selection":"maximum electric-profile localization in the device layer above z=0",
                 "normalization":"integral |Ey|^2 dz = 1"},
-        "efficiencies":{"target_free_space_mode":target_eff,"upward_radiation":upward,
+        "efficiencies":{"selected_mode_coupling":target_eff,
+            "target_free_space_mode":target_eff,"guided_output_mode":None,"upward_radiation":upward,
             "substrate_radiation":substrate,"residual_forward_waveguide":residual_guided,
             "back_reflection":back_reflection,"accounted_power":accounted,
             "numerical_or_absorber_residual":1-accounted,
             "insertion_loss_db":float(-10*np.log10(max(target_eff,1e-30))),
             "directionality":float(upward/max(upward+substrate,1e-30))},
+        "selected_port_coefficient":{"real":float(np.real(coefficient)),
+            "imag":float(np.imag(coefficient)),"magnitude":float(abs(coefficient)),
+            "phase_deg":float(np.rad2deg(np.angle(coefficient)))},
         "field":{"x_um":x[::stride].tolist(),"z_um":z[::stride].tolist(),
                  "normalization":"Ey is divided by max|Ey|; relative Poynting components are divided by max sqrt(Sx^2+Sz^2)",
                  "normalized_Ey2":intensity.T.tolist(),
@@ -349,8 +361,8 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
                  "normalized_Sx":(sx_power[::stride,::stride]/power_scale).T.tolist(),
                  "normalized_Sz":(sz_power[::stride,::stride]/power_scale).T.tolist(),
                  "epsilon_r":sampled_eps.T.tolist()},
-        "reciprocity_statement":"This result is one genuine waveguide-source solve. For reciprocal isotropic materials it defines the corresponding reciprocal-port overlap, but it is not an independently solved fiber-incident field and is not used as a reciprocity-error test.",
-        "scope":"2D scalar TE finite-device out-coupling solver, invariant across width. It includes finite length, partial etch, optional finite BOX and handle, substrate leakage, back-reflection, absorbing boundaries, and target-mode overlap. It does not include finite lateral width, full-vector 3D polarization mixing, or a validated incoming-fiber source.",
+        "reciprocity_statement":"This single result is one genuine waveguide-source solve, not an independently solved reciprocal field. Run the bidirectional reciprocity certificate for the independent Gaussian-source comparison.",
+        "scope":"2D scalar TE finite-device coupling solver, invariant across width. It supports independent guided-mode and Gaussian angular-spectrum sources, finite length, partial etch, optional finite BOX and handle, guided-mode projection, radiation channels and complex fields. It does not represent finite lateral width, a true 3D fiber mode, full-vector polarization mixing, per-tooth apodization, or multiple guided modes.",
         "references":[{"title":"Optical Waveguide Theory","authors":"Snyder and Love","applies_to":"mode normalization and reciprocity"},
           {"title":"Grating couplers for coupling between optical fibers and nanophotonic waveguides","doi":"10.1143/JJAP.45.6071"},
           {"title":"Improving accuracy by subpixel smoothing in the finite-difference time domain","doi":"10.1364/OL.31.002972","applies_to":"interface-aware discretization context; this scalar implementation uses cell-averaged epsilon, not the paper's full tensor method"},
@@ -411,7 +423,7 @@ def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
     if not analytic["modes"]:
         raise ValueError("The analytic slab control found no bound TE mode")
     uniform = solve_finite_grating(FiniteGratingModel(**{
-        **asdict(model), "fill_factor": .999999,
+        **asdict(model), "excitation": "waveguide", "fill_factor": .999999,
         "target_center_um": None}))
     numerical_neff = float(uniform["mode"]["n_eff"])
     analytic_neff = float(analytic["modes"][0]["n_eff"])
@@ -438,7 +450,7 @@ def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
 
 
 _DESIGN_PARAMETERS = {name for name in FiniteGratingModel.__dataclass_fields__
-                      if name not in {"target_center_um"}}
+                      if name not in {"target_center_um","excitation"}}
 def _with(model: FiniteGratingModel, parameter: str, value: float) -> FiniteGratingModel:
     if parameter not in _DESIGN_PARAMETERS:
         raise ValueError(f"Unsupported finite-device parameter {parameter}")

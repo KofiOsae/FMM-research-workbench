@@ -59,6 +59,7 @@ from finite_grating import (FiniteGratingModel, solve_finite_grating,
                             finite_grating_sweep, finite_grating_tolerance,
                             optimize_finite_grating, benchmark_finite_grating,
                             finite_grid_limit)
+from finite_grating_bidirectional import reciprocity_certificate
 
 
 ROOT = Path(__file__).parent
@@ -114,7 +115,11 @@ def method_provenance(operation: str) -> dict:
                       "sweep_point","diffraction_sweep","linked_observable_sweep","validation_report","diffraction_order_map",
                       "slab_compare","slab_dispersion","tolerance","resonance_fields",
                       "resonant_polarization","polarization_winding","optimize_geometry","measurement","multi_fit"}
-    references = (common if operation in fmm_operations else []) + groups.get(operation, [])
+    if operation.startswith("finite_grating_"):
+        operation_references = groups["finite_grating_coupler"]
+    else:
+        operation_references = groups.get(operation, [])
+    references = (common if operation in fmm_operations else []) + operation_references
     return {"operation": operation, "references": references,
             "note": "Citations identify numerical formulations or interpretation standards; they do not certify convergence of this result."}
 
@@ -326,7 +331,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
-                'version':'finite-grid-2026-10-09',
+                'version':'bidirectional-grating-2026-10-10',
                 'public_demo': PUBLIC_DEMO,
                 'limits': {'finite_grid_cells': finite_grid_limit()},
                 'queue': run_jobs.status_summary()}).encode(), "application/json")
@@ -638,6 +643,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = solve_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_validation":
                 payload = validate_finite_grating(FiniteGratingModel(**data["model"]))
+            elif operation == "finite_grating_reciprocity":
+                payload = reciprocity_certificate(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_benchmark":
                 payload = benchmark_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_spectrum":

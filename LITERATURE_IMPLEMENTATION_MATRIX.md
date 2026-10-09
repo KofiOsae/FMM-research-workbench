@@ -11,7 +11,8 @@ itself validation of this software.
 | Finite-domain Maxwell context and validation practice | A. F. Oskooi *et al.*, “MEEP: A flexible free-software package for electromagnetic simulations by the FDTD method,” *Computer Physics Communications* 181, 687–702 (2010), [doi:10.1016/j.cpc.2009.11.008](https://doi.org/10.1016/j.cpc.2009.11.008) | `finite_grating.py`, `run_jobs.py` | mesh, absorber, padding, interface-raster, and closed-power tests | The Workbench uses its own frequency-domain scalar operator, not Meep. The paper guides source/boundary/convergence controls only. |
 | SOI grating-coupler physics | D. Taillaert, P. Bienstman, and R. Baets, “Compact efficient broadband grating coupler for silicon-on-insulator waveguides,” *Optics Letters* 29, 2749–2751 (2004), [PubMed record](https://pubmed.ncbi.nlm.nih.gov/15605493/) and Taillaert *et al.*, “Grating couplers for coupling between optical fibers and nanophotonic waveguides,” *JJAP* 45, 6071 (2006), [doi:10.1143/JJAP.45.6071](https://doi.org/10.1143/JJAP.45.6071) | finite-device workspace and `finite_grating.py` | spectrum, design, tolerance, port-mode, and power-channel tests | The shared physical model now supports upper cladding, device silicon, finite BOX, and handle. It remains a uniform, invariant-width 2D scalar TE model; it cannot reproduce a complete 3D fiber-coupler efficiency. |
 | Waveguide modes and modal power | A. W. Snyder and J. D. Love, *Optical Waveguide Theory* (1983); S. Fallahkhair, K. S. Li, and T. E. Murphy, “Vector finite difference modesolver for anisotropic dielectric waveguides,” *JLT* 26, 1423–1431 (2008), [doi:10.1109/JLT.2008.923643](https://doi.org/10.1109/JLT.2008.923643) | `waveguide.py`, `vector_modes.py`, `mode_coupling.py`, `finite_grating.py::_te_mode` | analytic slab and numerical-mode comparisons; overlap self-tests | The finite grating uses a scalar TE port normalized by integral |Ey|² dz and calibrates power with a reference solve. General vector E/H power normalization exists in the separate uniform-port workspace and is not yet connected to a full-vector finite propagator. |
-| Reciprocity | Lorentz reciprocity as treated in Snyder and Love and standard electromagnetic scattering theory | `mode_coupling.py`; statement/export in `finite_grating.py` | uniform-port reciprocal overlap tests | The finite-grating result is one waveguide-source out-coupling solve. No independent incoming Gaussian solve exists yet, so the application does not report a finite-device reciprocity error or relabel the out-coupling result as a reverse solve. |
+| Reciprocity | Lorentz reciprocity as treated in Snyder and Love and standard electromagnetic scattering theory | `mode_coupling.py`; `finite_grating.py`; `finite_grating_bidirectional.py` | uniform-port overlap self-tests; two-source finite-grating coefficient comparison | The finite-grating certificate runs independent guided-mode and Gaussian equivalent-current solves and compares power-normalized coefficient magnitude and efficiency. Raw phase is exported; phase reciprocity is not certified until port reference planes are de-embedded. |
+| Gaussian equivalent-current source | Total-field/scattered-field and equivalent-current formulations in Taflove and Hagness; Gaussian mode context in Taillaert et al. | `finite_grating_bidirectional.py::solve_fiber_incident` | homogeneous reference reproduction, sampled-angle report, paired-source reciprocity regression | The incident field is a 2D width-invariant Gaussian sheet synthesized from propagating angular-spectrum components and truncated inside the absorber. It is not a circular full-vector 3D fiber field. |
 | Literature device target | R. Marchetti *et al.*, “High-efficiency grating-couplers: demonstration of a new design strategy,” *Scientific Reports* 7, 16670 (2017), [doi:10.1038/s41598-017-16505-z](https://doi.org/10.1038/s41598-017-16505-z) | tutorial research workflow | tutorial checks only | This reference motivates geometry, efficiency definitions, and validation. Its reported efficiency is not an acceptance value until the same tooth table, layer stack, materials, polarization, angle, and 3D model are reproduced. |
 
 ## Equations implemented in the current finite-device milestone
@@ -36,17 +37,15 @@ normalization is recorded separately from the power accounting.
 
 1. **Completed audit and reliability foundation:** architecture, deployment,
    resource preflight, aggregate usage statistics, and responsive layouts.
-2. **Completed in this milestone:** shared finite BOX/handle geometry, legacy and
-   cell-averaged scalar rasterization, complex field/phase/relative Poynting
-   export, and an explicit one-direction source label.
-3. **Next solver gate:** a mathematically consistent incoming Gaussian beam using
-   equivalent currents or total-field/scattered-field injection, with incident
-   power calibration in a homogeneous reference domain.
-4. **Then:** independent bidirectional solves, complex scattering-amplitude
-   reciprocity error, source-plane and window-convergence tests.
+2. **Completed:** shared finite BOX/handle geometry, legacy and cell-averaged
+   scalar rasterization, and complex field/phase/relative Poynting export.
+3. **Completed:** incoming Gaussian angular-spectrum equivalent current,
+   homogeneous incident-power calibration, and incident/scattered separation.
+4. **Completed with a stated phase limitation:** independent bidirectional
+   solves and coefficient-magnitude/efficiency reciprocity. **Next:** common
+   reference-plane phase de-embedding plus source-plane and window convergence.
 5. **Then:** apodized/imported tooth tables, full-vector port contract and a
    separately reviewed full-vector finite propagator.
 
-Stages 3–5 are intentionally not represented by inactive plots or by copied
-out-coupling numbers. They become user-facing only after their acceptance tests
-pass.
+The remaining full-vector stage is not represented by inactive plots or copied
+scalar results. It becomes user-facing only after its acceptance tests pass.

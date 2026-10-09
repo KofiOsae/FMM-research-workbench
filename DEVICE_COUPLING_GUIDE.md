@@ -87,11 +87,14 @@ The reported directional efficiencies are \(|a_m^\pm|^2\).
 ## 4. Finite-device formulation implemented now
 
 The **Finite grating coupler** workspace implements a two-dimensional scalar
-TE finite-difference frequency-domain calculation. It launches the normalized
-fundamental waveguide mode toward a finite, partially or fully etched grating.
-It calculates the complex overlap of the outgoing radiation with a selected
-Gaussian target mode. This is one genuine out-coupling solve. It is not
-converted into or substituted for an independently solved incoming-beam result.
+TE finite-difference frequency-domain calculation with two independent source
+choices on the same physical model. **Waveguide** launches the normalized
+fundamental port mode and projects outgoing radiation on a Gaussian port.
+**Gaussian** constructs the time-reversed angular spectrum, converts it to the
+discrete equivalent current \(b=A_\mathrm{clad}E_\mathrm{inc}\), solves the
+device, and projects the result on the right-going waveguide eigenmode. A
+separate homogeneous solve supplies incident-power normalization and the
+incident/scattered field separation.
 The domain contains a finite grating, either a homogeneous lower half-space or
 a finite BOX and handle, a uniform waveguide port, graded
 complex-coordinate absorbers, and normalized modal and radiation monitors.
@@ -102,8 +105,8 @@ Its main target observable is
 E_{\mathrm{radiated}}\rangle_P|^2}{P_{\mathrm{target}}P_{\mathrm{incident}}}.
 \]
 
-The current one-mode scalar implementation reports reflected guided power,
-residual forward guided power, upward radiation, substrate radiation, and
+The current one-mode scalar implementation reports guided output in each
+direction, free-space reflection or upward radiation, substrate radiation, and
 numerical residual. For passive lossless media the normalized budget should
 satisfy
 
@@ -127,11 +130,60 @@ published benchmark.
 This initial solver is restricted to reciprocal, isotropic, lossless 2D TE
 structures invariant across their width. It does not yet support full-vector
 3D focusing gratings, arbitrary finite-width masks, material absorption, or
-several output modes. It also does not yet contain a validated incoming Gaussian
-equivalent-current source, so finite-device reciprocity error is not reported.
-Those limitations are explicit in every result export.
+several output modes. The reciprocity certificate now runs both source
+constructions and compares their power-normalized complex coefficients. Its
+current gate uses coefficient magnitude and efficiency. Raw phases are
+exported, but phase reciprocity is not certified until both port reference
+planes are de-embedded to a common origin. Those limitations are explicit in
+every result export.
 
-## 5. Implemented finite-device design workflow
+## 5. Bidirectional worked workflows
+
+### Tutorial A — waveguide → grating → Gaussian port
+
+1. Select **Waveguide mode → grating → Gaussian port**.
+2. Define the SOI core, upper cladding, finite BOX and handle. The scalar port
+   eigenproblem reports \(n_\mathrm{eff}\), propagation constant, core
+   localization and normalization.
+3. Estimate the first period from phase matching,
+   \(\Lambda\approx\lambda_0/(n_\mathrm{eff}-n_c\sin\theta)\), then enter the
+   actual finite period, fill factor, etch depth and number of teeth.
+4. Define the outgoing Gaussian by its 1/e electric-field waist, center,
+   signed global angle and reference phase.
+5. Run the baseline controls. The analytic slab and nearly uniform guide are
+   implementation controls; neither validates the patterned coupler.
+6. Calculate the device. Inspect total complex field, phase and Poynting flow.
+   Read Gaussian-port coupling together with upward radiation, substrate loss,
+   guided reflection and the power residual.
+7. Run spectrum, bounded optimization and fabrication tolerance. Treat the
+   power residual, directionality and reflection as constraints.
+8. Run Trust validation and the bidirectional reciprocity certificate. Export
+   inputs, software settings, both complex coefficients and every certificate.
+
+### Tutorial B — Gaussian port → grating → waveguide
+
+1. Keep the same geometry and select **Gaussian port → grating → waveguide**.
+2. The entered outgoing angle defines the port. The reciprocal incoming
+   wavevector reverses sign in global coordinates; the interface reports both
+   requested and actually sampled incoming angles.
+3. Calculate the device. The homogeneous reference field normalizes incident
+   power. Use the field selector to compare incident, scattered and total
+   intensity or signed field.
+4. Read **guided-mode coupling** as the right-going modal projection. Also
+   inspect left-going guided power, reflected free-space power, substrate
+   radiation and unaccounted/absorber residual.
+5. Screen waist, position, angle and grating geometry. The optimizer and
+   tolerance engine use the selected source direction and the same
+   `selected_mode_coupling` observable.
+6. Run Trust validation, then the reciprocity certificate. A failed
+   reciprocity gate is evidence to refine mesh, window, absorbers, padding or
+   reference-plane treatment; it must not be averaged away.
+
+Both tutorials describe a 2D width-invariant Gaussian sheet and scalar TE
+field. A realistic circular fiber above a finite-width focusing grating needs a
+full-vector 3D solver and a two-dimensional transverse fiber-mode overlap.
+
+## 6. Implemented finite-device design workflow
 
 The finite-device workspace now carries one model through the complete nominal
 design cycle:
@@ -162,7 +214,7 @@ Project files and design-study exports preserve the finite-device inputs,
 baseline controls, spectrum, parameter sweep, optimizer history, tolerance
 samples, and Trust certificate.
 
-## 6. Design variables and research outputs
+## 7. Design variables and research outputs
 
 A finite-device design study should permit period, duty cycle, etch depth,
 number of periods, chirp, apodization, fiber waist, fiber angle, lateral offset,
@@ -176,7 +228,7 @@ normalization, port normalization, solver version, mesh/PML/domain convergence,
 power budget, mode identity, objective and constraints, and a model
 fingerprint.
 
-## 7. Literature comparison case and scope gate
+## 8. Literature comparison case and scope gate
 
 Marchetti et al., *Scientific Reports* **7**, 16670 (2017), provide a useful
 high-efficiency evidence workflow: a full-vector 2D FDTD design, simultaneous
@@ -193,7 +245,7 @@ still requires its per-tooth apodization and a matched full-vector calculation;
 the Workbench now represents the finite oxide and silicon handle. It labels this
 boundary rather than silently comparing unlike geometries.
 
-## 8. Literature basis
+## 9. Literature basis
 
 - A. W. Snyder and J. D. Love, *Optical Waveguide Theory*, Chapman and Hall
   (1983): guided-mode orthogonality, excitation, and reciprocity.
