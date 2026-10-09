@@ -43,3 +43,69 @@ dialog{width:min(900px,calc(100vw - 32px));max-height:85vh;border:1px solid #b9c
 [data-custom-expression]{min-width:230px}
 .scope-banner{margin:10px 0 16px;padding:12px 14px;border-left:5px solid #1768a5;border-radius:8px;background:#eef7fc;color:#243d55;line-height:1.45}
 .scope-banner strong{color:#123f66}
+
+/* Responsive research workspace: preserve an editable settings pane beside
+   results on desktops, laptops, and landscape tablets. */
+html,body{max-width:100%;overflow-x:hidden}
+main{width:min(100% - 32px,1900px);max-width:1900px;grid-template-columns:minmax(320px,380px) minmax(0,1fr);gap:clamp(14px,1.5vw,26px)}
+main>aside,main>section,.card,.row>*,.row3>*{min-width:0}
+input,select,textarea{min-width:0;max-width:100%}
+.plot,.structure{height:auto;max-width:100%}
+.plot-frame{max-width:100%;overscroll-behavior-inline:contain}
+.card table{display:block;max-width:100%;overflow-x:auto;white-space:nowrap}
+.metrics{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.workspace-nav{scrollbar-width:thin;overscroll-behavior-inline:contain}
+.workspace-nav button{flex:0 0 clamp(132px,12vw,190px);min-width:132px}
+.workspace-layout-control{flex:0 0 150px!important}
+.workspace-layout-control select{width:150px}
+main[data-workspace="finite"],main[data-workspace="usage"],main[data-workspace="cavity"]{grid-template-columns:minmax(0,1fr)}
+main[data-workspace="finite"]>aside,main[data-workspace="usage"]>aside,main[data-workspace="cavity"]>aside{display:none}
+body[data-workspace-layout="stack"] main{grid-template-columns:minmax(0,1fr)}
+body[data-workspace-layout="stack"] main>aside{position:static;max-height:none;overflow:visible;padding-right:0}
+body[data-workspace-layout="split"] main:not([data-workspace="finite"]):not([data-workspace="usage"]):not([data-workspace="cavity"]){grid-template-columns:minmax(300px,34vw) minmax(560px,1fr);overflow-x:auto}
+
+@media (min-width:1000px) and (max-width:1399px){
+  main{grid-template-columns:minmax(300px,340px) minmax(0,1fr);width:calc(100% - 24px);gap:16px;padding:0}
+  .card{padding:18px}
+  main>aside .row3{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .operation-nav{padding:8px 12px;gap:8px}
+  .operation-nav>div{flex-basis:230px}
+  .operation-nav select{max-width:230px}
+}
+
+@media (min-width:760px) and (max-width:999px) and (orientation:landscape){
+  main{grid-template-columns:minmax(280px,31vw) minmax(0,1fr);width:calc(100% - 20px);padding:0;gap:12px}
+  main>aside{align-self:start;position:sticky;top:var(--study-top,170px);max-height:calc(100vh - var(--study-top,170px) - 8px);overflow:auto;padding-right:5px}
+  main>aside .row,main>aside .row3{grid-template-columns:1fr}
+  .card{padding:15px}
+  .operation-nav{position:sticky;top:66px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:8px 10px;gap:7px}
+  .operation-nav>div,.operation-nav .tool-finder{min-width:0!important;max-width:none;flex:auto}
+  .operation-nav select,#quickAction,.workspace-layout-control select{width:100%;max-width:none}
+  .scan-estimate{grid-column:1/-1}
+}
+
+@media (max-width:759px),(max-width:999px) and (orientation:portrait){
+  main{display:block;width:100%;padding:0 12px;margin:16px auto}
+  main>aside{position:static;max-height:none;overflow:visible;padding:0}
+  .card{padding:15px;margin-bottom:14px}
+  .row,.row3,.mask-editor .row3{grid-template-columns:1fr}
+  .operation-nav{position:relative;top:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));padding:8px 12px;gap:8px}
+  .operation-nav>div,.operation-nav .tool-finder{min-width:0!important;max-width:none;flex:auto}
+  .operation-nav select,#quickAction,.workspace-layout-control select{width:100%;max-width:none;min-width:0}
+  .operation-nav .scan-estimate,.operation-nav .tool-finder{grid-column:1/-1}
+  .focus-choice{white-space:normal}
+  .workspace-nav{position:relative;display:flex;overflow-x:auto;padding:8px 12px;gap:8px}
+  .workspace-nav button{flex:0 0 150px;min-width:150px;padding:10px;font-size:13px}
+  .plot-frame canvas{min-width:620px}
+  .structure{min-width:620px}
+  .plot-tools .hint{flex-basis:100%}
+  .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+@media (max-width:520px){
+  header{padding:14px 16px}header h1{font-size:22px}
+  .operation-nav{grid-template-columns:1fr}
+  .operation-nav>*{grid-column:1!important}
+  .metrics{grid-template-columns:1fr}
+  .run-tray{right:8px;bottom:8px;width:calc(100vw - 16px)}
+}

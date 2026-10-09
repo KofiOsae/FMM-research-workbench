@@ -3,11 +3,13 @@ import json
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from dataclasses import replace
 from unittest.mock import patch
 
 import numpy as np
 import run_jobs
+import usage_stats
 from app import spectrum, _spectrum_diagnostics
 from stack import StackModel, Layer
 from tmm import solve_tmm
@@ -113,6 +115,25 @@ class UpgradeTests(unittest.TestCase):
         self.assertIsNone(run_jobs.snapshot(key))
         self.assertTrue(any(item['job_id']==key for item in run_jobs.history()))
 
+    def test_anonymous_usage_statistics_are_aggregate_and_deduplicated(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                usage_stats, '_path', Path(directory) / 'usage.json'):
+            first = usage_stats.record_visit('random-browser-12345', True)
+            second = usage_stats.record_visit('random-browser-12345', False)
+            usage_stats.record_calculation('spectrum', 'started')
+            usage_stats.record_calculation('spectrum', 'completed')
+            usage_stats.record_calculation('bands', 'started')
+            usage_stats.record_calculation('bands', 'failed')
+            result = usage_stats.summary()
+        self.assertTrue(first['new_anonymous_visitor'])
+        self.assertFalse(second['new_anonymous_visitor'])
+        self.assertEqual(result['totals']['anonymous_visitors'], 1)
+        self.assertEqual(result['totals']['page_views'], 2)
+        self.assertEqual(result['totals']['sessions'], 1)
+        self.assertEqual(result['totals']['calculations_completed'], 1)
+        self.assertEqual(result['totals']['calculations_failed'], 1)
+        self.assertNotIn('random-browser-12345', json.dumps(result))
+
     def test_job_failure(self):
         def work():
             raise ValueError('Known failure')
@@ -150,6 +171,10 @@ class UpgradeTests(unittest.TestCase):
                 self.assertEqual(health['status'],'ok')
                 self.assertEqual(health['version'],'scientific-workflow-2026-10-09')
                 self.assertEqual(health['queue']['solver_workers'],1)
+            with urlopen(base+'/api/usage-stats') as response:
+                statistics=json.loads(response.read())
+                self.assertIn('anonymous_visitors',statistics['totals'])
+                self.assertIn('No IP address',statistics['privacy'])
             with urlopen(base+'/workbench.js') as response:
                 script=response.read()
                 self.assertIn(b'Run from here',script)
@@ -194,6 +219,17 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'finiteGratingSchematic',script)
                 self.assertIn(b'Parameter definitions, supported coupling, and limits',script)
                 self.assertIn(b'How to read this result',script)
+                self.assertIn(b'Usage statistics',script)
+                self.assertIn(b'Anonymous browsers',script)
+                self.assertIn(b'/api/usage/visit',script)
+                self.assertIn(b'Workspace layout',script)
+                self.assertIn(b'workspaceLayout',script)
+            with urlopen(base+'/workbench.css') as response:
+                stylesheet=response.read()
+                self.assertIn(b'orientation:landscape',stylesheet)
+                self.assertIn(b'workspace-layout="split"',stylesheet)
+                self.assertIn(b'data-workspace="usage"',stylesheet)
+                self.assertIn(b'minmax(300px,340px)',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)

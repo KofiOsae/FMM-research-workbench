@@ -8,6 +8,7 @@ import json
 import os
 import logging
 import run_jobs
+import usage_stats
 from threading import Lock
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -320,6 +321,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(value or {'error':'Job expired or unknown'}).encode(), 'application/json', 200 if value else 404)
         elif self.path == '/api/job-history':
             self._send(json.dumps({'jobs': run_jobs.history()}).encode(), 'application/json')
+        elif self.path == '/api/usage-stats':
+            self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
                 'version':'scientific-workflow-2026-10-09',
@@ -329,6 +332,17 @@ class Handler(BaseHTTPRequestHandler):
             self._send(b"Not found", "text/plain", 404)
 
     def do_POST(self):
+        if self.path == '/api/usage/visit':
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 4096:
+                    raise ValueError('Request size is invalid')
+                data = json.loads(self.rfile.read(length))
+                result = usage_stats.record_visit(str(data.get('visitor_id', '')),
+                                                  bool(data.get('new_session', True)))
+                return self._send(json.dumps(result).encode(), 'application/json')
+            except (ValueError, TypeError) as exc:
+                return self._send(json.dumps({'error':str(exc)}).encode(), 'application/json', 400)
         if self.path.startswith('/api/forget/'):
             removed = run_jobs.forget(self.path.split('/')[-1])
             return self._send(json.dumps({'removed':removed}).encode(), 'application/json', 200 if removed else 404)
@@ -365,12 +379,18 @@ class Handler(BaseHTTPRequestHandler):
     def _execute_post(self):
         if not self.path.startswith("/api/"):
             return self._send(b"Not found", "text/plain", 404)
+        operation = self.path.removeprefix("/api/")
+        tracked = usage_stats.tracks_calculation(operation)
+        usage_started = False
+        usage_finished = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= MAX_BODY:
                 raise ValueError("Request size is invalid")
             data = json.loads(self.rfile.read(length))
-            operation = self.path.removeprefix("/api/")
+            if tracked:
+                usage_stats.record_calculation(operation, "started")
+                usage_started = True
             if operation == "solve":
                 model = parse_stack(data["model"])
                 convergence = stack_convergence(model)
@@ -663,17 +683,27 @@ class Handler(BaseHTTPRequestHandler):
                                      str(data.get("title", "Simulation result"))[:120], fmt)
                 return self._send(figure, "image/svg+xml" if fmt == "svg" else "image/png")
             else:
+                if usage_started:
+                    usage_stats.record_calculation(operation, "failed")
                 return self._send(b"Not found", "text/plain", 404)
             payload["submission"] = {"operation": operation,
                 "received_utc": datetime.now(timezone.utc).isoformat(),
                 "sha256": settings_fingerprint(data), "inputs": data}
             payload["software"] = software_versions()
             payload["provenance"] = method_provenance(operation)
-            self._send(json.dumps(payload, allow_nan=False).encode(), "application/json")
+            encoded = json.dumps(payload, allow_nan=False).encode()
+            if usage_started:
+                usage_stats.record_calculation(operation, "completed")
+                usage_finished = True
+            self._send(encoded, "application/json")
         except (ValueError, KeyError, TypeError, np.linalg.LinAlgError) as exc:
+            if usage_started and not usage_finished:
+                usage_stats.record_calculation(operation, "failed")
             logging.warning("Invalid request for %s: %s", self.path, exc)
             self._send(json.dumps({"error": str(exc)}).encode(), "application/json", 400)
         except Exception:
+            if usage_started and not usage_finished:
+                usage_stats.record_calculation(operation, "failed")
             logging.exception("Unexpected failure for %s", self.path)
             self._send(b'{"error":"Unexpected solver error. See workbench.log and the troubleshooting guide."}',
                        "application/json", 500)

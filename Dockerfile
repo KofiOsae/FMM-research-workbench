@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=7860 \
     PUBLIC_DEMO=1 \
     FMM_USER_MATERIALS_PATH=/tmp/fmm-user-materials.json \
+    USAGE_STATS_PATH=/tmp/fmm-usage-stats.json \
     MPLCONFIGDIR=/tmp/matplotlib \
     OMP_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1 \

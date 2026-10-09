@@ -6,6 +6,7 @@ __pycache__/
 *.pid
 user_materials.json
 .workbench_history.json
+.usage_stats.json
 .sweep_checkpoints/
 .env
 .idea/

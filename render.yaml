@@ -13,6 +13,8 @@ services:
         value: "1"
       - key: FMM_USER_MATERIALS_PATH
         value: /tmp/fmm-user-materials.json
+      - key: USAGE_STATS_PATH
+        value: /tmp/fmm-usage-stats.json
       - key: OMP_NUM_THREADS
         value: "1"
       - key: OPENBLAS_NUM_THREADS
