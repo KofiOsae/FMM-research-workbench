@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
     PORT=7860 \
     PUBLIC_DEMO=1 \
+    FINITE_GRID_LIMIT_PUBLIC=80000 \
     FMM_USER_MATERIALS_PATH=/tmp/fmm-user-materials.json \
     USAGE_STATS_PATH=/tmp/fmm-usage-stats.json \
     MPLCONFIGDIR=/tmp/matplotlib \

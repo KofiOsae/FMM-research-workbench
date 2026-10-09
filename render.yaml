@@ -11,6 +11,8 @@ services:
         value: 10000
       - key: PUBLIC_DEMO
         value: "1"
+      - key: FINITE_GRID_LIMIT_PUBLIC
+        value: "80000"
       - key: FMM_USER_MATERIALS_PATH
         value: /tmp/fmm-user-materials.json
       - key: USAGE_STATS_PATH

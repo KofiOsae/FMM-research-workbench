@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 import numpy as np
-from scipy.sparse import coo_matrix, diags
+from scipy.sparse import diags
 from scipy.sparse.linalg import eigsh, spsolve
 from scipy.optimize import differential_evolution
 import run_jobs
@@ -64,8 +64,8 @@ class FiniteGratingModel:
             raise ValueError("Use 1–80 periods and a fill factor strictly between zero and one")
         if not 0 < self.etch_depth_um <= self.waveguide_height_um:
             raise ValueError("Etch depth must be positive and no larger than the waveguide height")
-        if not .01 <= self.mesh_um <= .15:
-            raise ValueError("Finite-device mesh must be 0.01–0.15 µm")
+        if not .005 <= self.mesh_um <= .15:
+            raise ValueError("Finite-device mesh must be 0.005–0.15 µm; the cell-budget preflight may require a coarser value for a large domain")
         if min(self.left_padding_um, self.right_padding_um, self.top_padding_um,
                self.substrate_depth_um, self.absorber_um) <= 0:
             raise ValueError("Domain padding and absorber thickness must be positive")
@@ -89,6 +89,17 @@ class FiniteGratingModel:
             raise ValueError("Target angle must be below 85° and target waist must be positive")
 
 
+def finite_grid_limit() -> int:
+    """Return the configured hard cell limit for this service instance."""
+    public = os.environ.get("PUBLIC_DEMO") == "1"
+    default_limit = 80_000 if public else 300_000
+    setting = "FINITE_GRID_LIMIT_PUBLIC" if public else "FINITE_GRID_LIMIT_LOCAL"
+    try:
+        return max(10_000, int(os.environ.get(setting, default_limit)))
+    except ValueError:
+        return default_limit
+
+
 def _axes(model: FiniteGratingModel):
     length = model.periods*model.period_um
     x = np.arange(-model.left_padding_um, length+model.right_padding_um+model.mesh_um/2,
@@ -96,10 +107,14 @@ def _axes(model: FiniteGratingModel):
     z = np.arange(-model.substrate_depth_um,
                   model.waveguide_height_um+model.top_padding_um+model.mesh_um/2,
                   model.mesh_um)
-    limit = 35_000 if os.environ.get("PUBLIC_DEMO") == "1" else 120_000
+    public = os.environ.get("PUBLIC_DEMO") == "1"
+    limit = finite_grid_limit()
     if x.size*z.size > limit:
-        context = " on the shared online service" if limit < 120_000 else ""
-        raise ValueError(f"Finite-device grid requests {x.size*z.size:,} cells; reduce the domain or use a coarser mesh{context} (limit {limit:,})")
+        context = " on the shared online service" if public else ""
+        minimum_mesh = np.sqrt((x[-1]-x[0])*(z[-1]-z[0])/limit)
+        raise ValueError(
+            f"Finite-device grid requests {x.size*z.size:,} cells{context}; the configured limit is {limit:,}. "
+            f"For this domain use mesh about {minimum_mesh:.4f} µm or coarser, reduce padding/period count, or run the fine validation locally.")
     return x, z
 
 
@@ -164,23 +179,29 @@ def _absorber_sigma(axis, low, high, thickness, strength):
 
 
 def _operator(eps, dx, dz, sx, sz, k0):
+    """Assemble the five-point scalar Helmholtz operator directly as diagonals.
+
+    Direct diagonal construction avoids the former per-entry Python row/column
+    lists.  This materially lowers pre-factorization memory while preserving
+    the same stencil and zero-Dirichlet outer rows.
+    """
     nx, nz = eps.shape
-    rows, cols, vals = [], [], []
-    def add(r, c, v): rows.append(r); cols.append(c); vals.append(v)
-    for i in range(nx):
-        for j in range(nz):
-            q = i*nz+j
-            if i in (0, nx-1) or j in (0, nz-1):
-                add(q, q, 1.0)
-                continue
-            sxm=(sx[i]+sx[i-1])/2; sxp=(sx[i]+sx[i+1])/2
-            szm=(sz[j]+sz[j-1])/2; szp=(sz[j]+sz[j+1])/2
-            axm=1/(sx[i]*sxm*dx*dx); axp=1/(sx[i]*sxp*dx*dx)
-            azm=1/(sz[j]*szm*dz*dz); azp=1/(sz[j]*szp*dz*dz)
-            add(q,(i-1)*nz+j,axm); add(q,(i+1)*nz+j,axp)
-            add(q,i*nz+j-1,azm); add(q,i*nz+j+1,azp)
-            add(q,q,k0*k0*eps[i,j]-axm-axp-azm-azp)
-    return coo_matrix((vals,(rows,cols)),shape=(nx*nz,nx*nz)).tocsr()
+    west=np.zeros((nx,nz),complex); east=np.zeros_like(west)
+    south=np.zeros_like(west); north=np.zeros_like(west)
+    interior=(slice(1,-1),slice(1,-1))
+    sxm=(sx[1:-1]+sx[:-2])/2; sxp=(sx[1:-1]+sx[2:])/2
+    szm=(sz[1:-1]+sz[:-2])/2; szp=(sz[1:-1]+sz[2:])/2
+    west[interior]=1/(sx[1:-1,None]*sxm[:,None]*dx*dx)
+    east[interior]=1/(sx[1:-1,None]*sxp[:,None]*dx*dx)
+    south[interior]=1/(sz[None,1:-1]*szm[None,:]*dz*dz)
+    north[interior]=1/(sz[None,1:-1]*szp[None,:]*dz*dz)
+    main=k0*k0*eps-west-east-south-north
+    boundary=np.zeros((nx,nz),bool); boundary[[0,-1],:]=True; boundary[:,[0,-1]]=True
+    main[boundary]=1; west[boundary]=east[boundary]=south[boundary]=north[boundary]=0
+    size=nx*nz
+    return diags((west.ravel()[nz:],south.ravel()[1:],main.ravel(),
+                  north.ravel()[:-1],east.ravel()[:-nz]),
+                 (-nz,-1,0,1,nz),shape=(size,size),format="csr")
 
 
 def _te_mode(reference_eps, z, k0):

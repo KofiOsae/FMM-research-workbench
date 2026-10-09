@@ -169,8 +169,9 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'finite-stack-2026-10-09')
+                self.assertEqual(health['version'],'finite-grid-2026-10-09')
                 self.assertEqual(health['queue']['solver_workers'],1)
+                self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
                 statistics=json.loads(response.read())
                 self.assertIn('anonymous_visitors',statistics['totals'])
@@ -222,6 +223,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'fgFiniteBox',script)
                 self.assertIn(b'fgDiscretization',script)
                 self.assertIn(b'fgFieldQuantity',script)
+                self.assertIn(b'fgGridEstimate',script)
+                self.assertIn(b'updateFiniteGridEstimate',script)
                 self.assertIn(b'normalized_Ey_real',script)
                 self.assertIn(b'Usage statistics',script)
                 self.assertIn(b'Anonymous browsers',script)

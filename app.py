@@ -57,7 +57,8 @@ from research_validation import (diffraction_order_map, linked_observable_sweep,
 from finite_grating import (FiniteGratingModel, solve_finite_grating,
                             validate_finite_grating, finite_grating_spectrum,
                             finite_grating_sweep, finite_grating_tolerance,
-                            optimize_finite_grating, benchmark_finite_grating)
+                            optimize_finite_grating, benchmark_finite_grating,
+                            finite_grid_limit)
 
 
 ROOT = Path(__file__).parent
@@ -325,8 +326,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
-                'version':'finite-stack-2026-10-09',
+                'version':'finite-grid-2026-10-09',
                 'public_demo': PUBLIC_DEMO,
+                'limits': {'finite_grid_cells': finite_grid_limit()},
                 'queue': run_jobs.status_summary()}).encode(), "application/json")
         else:
             self._send(b"Not found", "text/plain", 404)

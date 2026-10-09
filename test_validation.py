@@ -49,7 +49,7 @@ from research_validation import (diffraction_order_map, linked_observable_sweep,
 from finite_grating import (FiniteGratingModel, solve_finite_grating,
                             benchmark_finite_grating, finite_grating_spectrum,
                             finite_grating_sweep, finite_grating_tolerance,
-                            optimize_finite_grating, _permittivity)
+                            optimize_finite_grating, _permittivity, _axes)
 import materials
 
 
@@ -177,6 +177,14 @@ class PhysicalValidation(unittest.TestCase):
         self.assertLess(abs(result["efficiencies"]["numerical_or_absorber_residual"]),.03)
         self.assertEqual(result["geometry"]["lower_stack"]["type"],
                          "finite_box_and_handle")
+
+    def test_finite_grating_local_budget_accepts_default_full_stack_at_15_nm(self):
+        model=FiniteGratingModel(mesh_um=.015,box_thickness_um=2,handle_n=3.48,
+                                 substrate_depth_um=3)
+        with patch.dict("os.environ",{"PUBLIC_DEMO":"0"}):
+            x,z=_axes(model)
+        self.assertGreater(x.size*z.size,120_000)
+        self.assertLessEqual(x.size*z.size,300_000)
 
     def test_custom_mask_resamples_with_documented_orientation(self):
         source = bytearray(8 * 8)

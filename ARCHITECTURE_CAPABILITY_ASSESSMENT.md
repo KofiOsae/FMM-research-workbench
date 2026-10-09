@@ -90,8 +90,9 @@ The audit found two concrete application faults and two deployment risks:
   backlog is enlarged so health and polling requests remain responsive.
 
 For the shared Render demonstration, numerical libraries are restricted to one
-thread and the finite FDFD grid is capped at 35,000 cells. Local installations
-retain the 120,000-cell ceiling. These controls reduce process termination and
+thread and the finite FDFD grid defaults to 80,000 cells. Local installations
+default to 300,000 cells after direct sparse-diagonal assembly replaced the
+memory-heavy Python entry lists. These controls reduce process termination and
 503 responses; they do not turn the free shared service into a high-performance
 compute platform.
 
