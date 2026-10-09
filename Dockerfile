@@ -6,7 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=7860 \
     PUBLIC_DEMO=1 \
     FMM_USER_MATERIALS_PATH=/tmp/fmm-user-materials.json \
-    MPLCONFIGDIR=/tmp/matplotlib
+    MPLCONFIGDIR=/tmp/matplotlib \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends git \

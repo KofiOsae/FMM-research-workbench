@@ -8,6 +8,7 @@ import json
 import os
 import logging
 import run_jobs
+from threading import Lock
 from dataclasses import asdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -53,13 +54,17 @@ from resonator_metrics import resonator_metrics
 from research_validation import (diffraction_order_map, linked_observable_sweep,
                                  settings_fingerprint, validation_report)
 from finite_grating import (FiniteGratingModel, solve_finite_grating,
-                            validate_finite_grating)
+                            validate_finite_grating, finite_grating_spectrum,
+                            finite_grating_sweep, finite_grating_tolerance,
+                            optimize_finite_grating, benchmark_finite_grating)
 
 
 ROOT = Path(__file__).parent
 logging.basicConfig(filename=ROOT / "workbench.log", level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s")
 MAX_BODY = 2_000_000  # imported 256×256 masks plus project metadata
+PUBLIC_DEMO = os.environ.get("PUBLIC_DEMO") == "1"
+_solver_gate = Lock()
 
 
 def software_versions() -> dict:
@@ -316,11 +321,17 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/api/job-history':
             self._send(json.dumps({'jobs': run_jobs.history()}).encode(), 'application/json')
         elif self.path == "/health":
-            self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()), 'version':'training-upgrade-1'}).encode(), "application/json")
+            self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
+                'version':'scientific-workflow-2026-10-09',
+                'public_demo': PUBLIC_DEMO,
+                'queue': run_jobs.status_summary()}).encode(), "application/json")
         else:
             self._send(b"Not found", "text/plain", 404)
 
     def do_POST(self):
+        if self.path.startswith('/api/forget/'):
+            removed = run_jobs.forget(self.path.split('/')[-1])
+            return self._send(json.dumps({'removed':removed}).encode(), 'application/json', 200 if removed else 404)
         if self.path.startswith('/api/cancel/'):
             value = run_jobs.snapshot(self.path.split('/')[-1], cancel=True)
             return self._send(json.dumps(value or {'error':'Unknown job'}).encode(), 'application/json', 200 if value else 404)
@@ -337,13 +348,19 @@ class Handler(BaseHTTPRequestHandler):
                     handler.path, handler.headers, handler.rfile = path, {'Content-Length':str(len(body))}, io.BytesIO(body)
                     captured = []
                     handler._send = lambda value, mime, status=200: captured.append((json.loads(value), status))
-                    handler._execute_post()
+                    with _solver_gate:
+                        handler._execute_post()
                     return captured[0]
                 key = run_jobs.submit(calculate, path.removeprefix('/api/'))
                 return self._send(json.dumps({'job_id':key}).encode(), 'application/json', 202)
             except (ValueError, TypeError) as exc:
                 return self._send(json.dumps({'error':str(exc)}).encode(), 'application/json', 400)
-        return self._execute_post()
+        if not _solver_gate.acquire(blocking=False):
+            return self._send(json.dumps({'error':'Another calculation is using the solver. Submit through the Workbench queue or wait for the active run to finish.'}).encode(), 'application/json', 429)
+        try:
+            return self._execute_post()
+        finally:
+            _solver_gate.release()
 
     def _execute_post(self):
         if not self.path.startswith("/api/"):
@@ -599,6 +616,30 @@ class Handler(BaseHTTPRequestHandler):
                 payload = solve_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_validation":
                 payload = validate_finite_grating(FiniteGratingModel(**data["model"]))
+            elif operation == "finite_grating_benchmark":
+                payload = benchmark_finite_grating(FiniteGratingModel(**data["model"]))
+            elif operation == "finite_grating_spectrum":
+                payload = finite_grating_spectrum(FiniteGratingModel(**data["model"]),
+                    float(data["start"]), float(data["stop"]), int(data["points"]))
+            elif operation == "finite_grating_sweep":
+                payload = finite_grating_sweep(FiniteGratingModel(**data["model"]),
+                    str(data["parameter"]), float(data["start"]),
+                    float(data["stop"]), int(data["points"]))
+            elif operation == "finite_grating_tolerance":
+                payload = finite_grating_tolerance(FiniteGratingModel(**data["model"]),
+                    data.get("uncertainties", []), int(data.get("samples", 20)),
+                    int(data.get("seed", 12345)), float(data.get("minimum_efficiency", .5)),
+                    float(data.get("maximum_reflection", .05)),
+                    float(data.get("minimum_directionality", .5)))
+            elif operation == "finite_grating_optimize":
+                payload = optimize_finite_grating(FiniteGratingModel(**data["model"]),
+                    data.get("variables", []), int(data.get("generations", 3)),
+                    int(data.get("population", 5)), int(data.get("seed", 12345)),
+                    float(data.get("minimum_directionality", 0)),
+                    float(data.get("maximum_reflection", 1)),
+                    float(data.get("maximum_power_residual", .03)),
+                    int(data.get("robust_samples", 1)), data.get("uncertainty_sigma", {}),
+                    float(data.get("variability_weight", 0)))
             elif operation == "coupled_branches":
                 payload = fit_coupled_branches(data["parameter"], data["branch_1_um"],
                     data["branch_2_um"],
@@ -638,6 +679,11 @@ class Handler(BaseHTTPRequestHandler):
                        "application/json", 500)
 
 
+class WorkbenchHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+
 def main():
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8765"))
@@ -645,7 +691,7 @@ def main():
         raise ValueError("PORT must be between 1 and 65535")
     address = (host, port)
     print(f"Open http://{address[0]}:{address[1]}/")
-    ThreadingHTTPServer(address, Handler).serve_forever()
+    WorkbenchHTTPServer(address, Handler).serve_forever()
 
 
 if __name__ == "__main__":

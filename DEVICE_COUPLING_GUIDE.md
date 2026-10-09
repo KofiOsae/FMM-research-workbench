@@ -122,7 +122,38 @@ structures invariant across their width. It does not yet support full-vector
 3D focusing gratings, arbitrary finite-width masks, material absorption, or
 several output modes. Those limitations are explicit in every result export.
 
-## 5. Design variables and research outputs
+## 5. Implemented finite-device design workflow
+
+The finite-device workspace now carries one model through the complete nominal
+design cycle:
+
+1. **Baseline controls:** compare the finite-difference port effective index
+   with the independent analytic asymmetric-slab dispersion relation and run
+   the full domain in the nearly uniform-waveguide limit.
+2. **Spectrum:** calculate target-mode efficiency versus wavelength and report
+   sampled contiguous 1 dB and 3 dB bandwidths. Refine the wavelength grid
+   around the selected peak before quoting bandwidth.
+3. **Physical screens:** vary period, fill factor, etch depth, period count,
+   target angle, or beam waist. A point is eligible only when its power-budget
+   residual passes the stated screen.
+4. **Bounded optimization:** vary one to five physical parameters together.
+   Target-mode efficiency is the objective; minimum directionality, maximum
+   reflection, and maximum power residual are separate feasibility conditions.
+5. **Robust optimization:** reuse fixed seeded Gaussian perturbations at every
+   candidate and penalize variability. This is a screening objective, not a
+   yield guarantee.
+6. **Fabrication tolerance:** propagate stated independent Gaussian parameter
+   distributions and report efficiency percentiles plus yield against the
+   entered efficiency, directionality, reflection, and residual limits.
+7. **Trust validation:** independently vary mesh, absorber strength, and all
+   domain paddings. Recompute a locally refined spectrum on the selected final
+   design.
+
+Project files and design-study exports preserve the finite-device inputs,
+baseline controls, spectrum, parameter sweep, optimizer history, tolerance
+samples, and Trust certificate.
+
+## 6. Design variables and research outputs
 
 A finite-device design study should permit period, duty cycle, etch depth,
 number of periods, chirp, apodization, fiber waist, fiber angle, lateral offset,
@@ -136,7 +167,24 @@ normalization, port normalization, solver version, mesh/PML/domain convergence,
 power budget, mode identity, objective and constraints, and a model
 fingerprint.
 
-## 6. Literature basis
+## 7. Literature comparison case and scope gate
+
+Marchetti et al., *Scientific Reports* **7**, 16670 (2017), provide a useful
+high-efficiency evidence workflow: a full-vector 2D FDTD design, simultaneous
+fill-factor and period apodization, etch optimization, a 260 nm SOI core,
+oxide overcladding/BOX, a silicon handle, a 10.4 µm fiber mode-field diameter,
+and fabrication measurements. They report 83% simulated peak coupling, 81%
+best measured coupling, and a simulated 1 dB bandwidth of 32.8 nm.
+
+Those headline values are **not** a numeric acceptance target for the current
+uniform-grating, single-substrate scalar model. The paper is used to verify
+definitions, output accounting, spectrum/bandwidth procedure, constrained
+design sequence, and tolerance reporting. A direct quantitative reproduction
+requires its per-tooth apodization, finite oxide thickness and silicon handle,
+followed by a matched full-vector calculation. The Workbench labels this
+boundary rather than silently comparing unlike geometries.
+
+## 8. Literature basis
 
 - A. W. Snyder and J. D. Love, *Optical Waveguide Theory*, Chapman and Hall
   (1983): guided-mode orthogonality, excitation, and reciprocity.
@@ -147,6 +195,11 @@ fingerprint.
 - D. Taillaert et al., “Grating couplers for coupling between optical fibers
   and nanophotonic waveguides,” *Jpn. J. Appl. Phys.* **45**, 6071–6077 (2006),
   [DOI 10.1143/JJAP.45.6071](https://doi.org/10.1143/JJAP.45.6071).
+- R. Marchetti et al., “High-efficiency grating-couplers: demonstration of a
+  new design strategy,” *Scientific Reports* **7**, 16670 (2017),
+  [DOI 10.1038/s41598-017-16505-z](https://doi.org/10.1038/s41598-017-16505-z):
+  simultaneous period/fill apodization, numerical optimization, tolerance,
+  bandwidth, and experimental comparison.
 - A. F. Oskooi et al., “MEEP: A flexible free-software package for
   electromagnetic simulations by the FDTD method,” *Comput. Phys. Commun.*
   **181**, 687–702 (2010),

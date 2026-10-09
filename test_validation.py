@@ -46,11 +46,67 @@ from observables import (evaluate_observable, evaluate_named_observables,
                          design_metric_value)
 from research_validation import (diffraction_order_map, linked_observable_sweep,
                                  settings_fingerprint, validation_report)
-from finite_grating import FiniteGratingModel, solve_finite_grating
+from finite_grating import (FiniteGratingModel, solve_finite_grating,
+                            benchmark_finite_grating, finite_grating_spectrum,
+                            finite_grating_sweep, finite_grating_tolerance,
+                            optimize_finite_grating)
 import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_fourier_grid_preflight_explains_aspect_ratio_failure(self):
+        model=StackModel(period_x_um=60,period_y_um=.6,order_budget=201,
+            grid_size=16,layers=(Layer(kind="stripe",thickness_um=.1,
+                background_material="air",feature_material="dielectric",
+                feature_n=2),))
+        with self.assertRaisesRegex(ValueError,"geometry grid of at least"):
+            solve_stack(model)
+
+    @staticmethod
+    def _fake_finite_result(model):
+        efficiency = max(0.0, .8 - 8*(model.period_um-.64)**2
+                         - 2*(model.fill_factor-.5)**2)
+        return {"model": vars(model), "mode": {"n_eff": 2.5},
+                "efficiencies": {"target_free_space_mode": efficiency,
+                    "upward_radiation": efficiency+.05,
+                    "substrate_radiation": .08,
+                    "residual_forward_waveguide": .04,
+                    "back_reflection": .01,
+                    "accounted_power": .99,
+                    "numerical_or_absorber_residual": .01,
+                    "insertion_loss_db": -10*math.log10(max(efficiency,1e-30)),
+                    "directionality": .8}}
+
+    def test_finite_grating_design_studies_use_device_observable(self):
+        model = FiniteGratingModel()
+        with patch("finite_grating.solve_finite_grating", side_effect=self._fake_finite_result):
+            spectrum = finite_grating_spectrum(model, 1.5, 1.6, 3)
+            sweep = finite_grating_sweep(model, "period_um", .60, .68, 5)
+            tolerance = finite_grating_tolerance(model,
+                [{"parameter":"period_um", "sigma":.002}], samples=5,
+                minimum_efficiency=.5)
+        self.assertEqual(len(spectrum["rows"]), 3)
+        self.assertAlmostEqual(sweep["best"]["parameter_value"], .64)
+        self.assertEqual(tolerance["completed"], 5)
+        self.assertEqual(tolerance["yield_fraction"], 1)
+
+    def test_finite_grating_optimizer_reports_feasibility(self):
+        with patch("finite_grating.solve_finite_grating", side_effect=self._fake_finite_result):
+            result = optimize_finite_grating(FiniteGratingModel(),
+                [{"parameter":"period_um", "lower":.58, "upper":.70}],
+                generations=1, population=4, minimum_directionality=.5,
+                maximum_reflection=.05, seed=4)
+        self.assertTrue(result["feasible"])
+        self.assertLess(abs(result["best_parameters"]["period_um"]-.64), .04)
+
+    def test_finite_grating_baseline_control(self):
+        result = benchmark_finite_grating(FiniteGratingModel(periods=2,
+            mesh_um=.08, left_padding_um=1, right_padding_um=1,
+            top_padding_um=1, substrate_depth_um=1, absorber_um=.35))
+        self.assertTrue(result["passed"])
+        self.assertLess(result["spurious_scattered_fraction"], .02)
+        self.assertIn("external", result["external_validation_required"].lower())
+
     def test_finite_grating_uniform_waveguide_power_control(self):
         result = solve_finite_grating(FiniteGratingModel(periods=2, fill_factor=.999,
             etch_depth_um=.01, mesh_um=.08, left_padding_um=1,

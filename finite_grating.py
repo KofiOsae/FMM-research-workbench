@@ -10,6 +10,10 @@ from dataclasses import dataclass, asdict
 import numpy as np
 from scipy.sparse import coo_matrix, diags
 from scipy.sparse.linalg import eigsh, spsolve
+from scipy.optimize import differential_evolution
+import run_jobs
+from waveguide import WaveguideModel, solve_waveguide
+import os
 
 
 @dataclass(frozen=True)
@@ -63,8 +67,10 @@ def _axes(model: FiniteGratingModel):
     z = np.arange(-model.substrate_depth_um,
                   model.waveguide_height_um+model.top_padding_um+model.mesh_um/2,
                   model.mesh_um)
-    if x.size*z.size > 120_000:
-        raise ValueError(f"Finite-device grid requests {x.size*z.size:,} cells; reduce the domain or use a coarser mesh (limit 120,000)")
+    limit = 35_000 if os.environ.get("PUBLIC_DEMO") == "1" else 120_000
+    if x.size*z.size > limit:
+        context = " on the shared online service" if limit < 120_000 else ""
+        raise ValueError(f"Finite-device grid requests {x.size*z.size:,} cells; reduce the domain or use a coarser mesh{context} (limit {limit:,})")
     return x, z
 
 
@@ -243,3 +249,217 @@ def validate_finite_grating(model: FiniteGratingModel) -> dict:
             "power_budget_residuals":power_residuals,"maximum_change":maximum,
             "passed_research":research,"passed_publication_screen":publication,
             "interpretation":"The certificate varies mesh, absorber strength, and all domain paddings independently. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
+
+
+def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
+    """Run independent modal and uniform-device baseline controls.
+
+    The analytic asymmetric-slab dispersion relation is independent of the
+    finite-difference port eigensolver.  A nearly unetched uniform guide then
+    exposes spurious radiation, reflection, or absorber error in the full
+    finite-domain calculation.
+    """
+    analytic = solve_waveguide(WaveguideModel(
+        wavelength_um=model.wavelength_um,
+        thickness_um=model.waveguide_height_um,
+        core_material="dielectric", core_n=model.core_n,
+        top_material="dielectric", top_n=model.cladding_n,
+        bottom_material="dielectric", bottom_n=model.substrate_n,
+        polarization="TE"))
+    if not analytic["modes"]:
+        raise ValueError("The analytic slab control found no bound TE mode")
+    uniform = solve_finite_grating(FiniteGratingModel(**{
+        **asdict(model), "fill_factor": .999999,
+        "target_center_um": None}))
+    numerical_neff = float(uniform["mode"]["n_eff"])
+    analytic_neff = float(analytic["modes"][0]["n_eff"])
+    neff_error = abs(numerical_neff-analytic_neff)
+    e = uniform["efficiencies"]
+    spurious = e["upward_radiation"]+e["substrate_radiation"]+e["back_reflection"]
+    # This is a deliberately loose baseline gate because the scalar port uses
+    # the same Cartesian staircasing as the device mesh.  The separate Trust
+    # certificate is the quantitative mesh-convergence gate.
+    passed = neff_error <= .15 and spurious <= 2e-2 and abs(e["numerical_or_absorber_residual"]) <= 2e-2
+    return {
+        "analytic_slab_n_eff": analytic_neff,
+        "finite_difference_port_n_eff": numerical_neff,
+        "absolute_n_eff_difference": neff_error,
+        "uniform_waveguide": _compact(uniform),
+        "spurious_scattered_fraction": float(spurious),
+        "passed": bool(passed),
+        "criteria": {"maximum_absolute_n_eff_difference": .15,
+                     "maximum_spurious_scattered_fraction": .02,
+                     "maximum_power_budget_residual": .02},
+        "interpretation": "This baseline checks the port mode against an independent analytic asymmetric-slab dispersion relation and checks the full finite domain in the uniform-waveguide limit. The n_eff gate is a coarse implementation check because the finite-difference port inherits Cartesian staircasing; use the Trust mesh study for quantitative convergence. This is not external validation of a patterned coupler.",
+        "external_validation_required": "External validation remains required for a publication claim: compare the final patterned-device observable with a matched literature case, an independent full-wave solver, or experiment."
+    }
+
+
+_DESIGN_PARAMETERS = {name for name in FiniteGratingModel.__dataclass_fields__
+                      if name not in {"target_center_um"}}
+def _with(model: FiniteGratingModel, parameter: str, value: float) -> FiniteGratingModel:
+    if parameter not in _DESIGN_PARAMETERS:
+        raise ValueError(f"Unsupported finite-device parameter {parameter}")
+    if parameter == "periods":
+        value = int(round(value))
+    return FiniteGratingModel(**{**asdict(model), parameter: value})
+
+
+def _compact(result: dict) -> dict:
+    return {"wavelength_um": result["model"]["wavelength_um"],
+            "n_eff": result["mode"]["n_eff"], **result["efficiencies"]}
+
+
+def finite_grating_spectrum(model: FiniteGratingModel, start: float, stop: float,
+                            points: int) -> dict:
+    if not np.isfinite([start,stop]).all() or start >= stop or not 3 <= points <= 81:
+        raise ValueError("Use 3–81 wavelengths with increasing finite limits")
+    rows=[]
+    for index,wavelength in enumerate(np.linspace(start,stop,points)):
+        run_jobs.progress(index,points,"Finite grating spectrum")
+        rows.append(_compact(solve_finite_grating(_with(model,"wavelength_um",float(wavelength)))))
+    values=np.array([row["target_free_space_mode"] for row in rows]); peak=int(np.argmax(values))
+    def width(drop_db):
+        threshold=values[peak]*10**(-drop_db/10); valid=values>=threshold
+        lo=peak; hi=peak
+        while lo>0 and valid[lo-1]: lo-=1
+        while hi+1<len(rows) and valid[hi+1]: hi+=1
+        return float(rows[hi]["wavelength_um"]-rows[lo]["wavelength_um"]), [lo,hi]
+    one_db,one_bounds=width(1); three_db,three_bounds=width(3)
+    return {"rows":rows,"peak":rows[peak],"peak_index":peak,
+            "bandwidth_1db_um":one_db,"bandwidth_3db_um":three_db,
+            "bandwidth_1db_indices":one_bounds,"bandwidth_3db_indices":three_bounds,
+            "interpretation":"Bandwidth uses contiguous sampled points around the maximum. Refine wavelength sampling before publication."}
+
+
+def finite_grating_sweep(model: FiniteGratingModel, parameter: str,
+                         start: float, stop: float, points: int) -> dict:
+    if parameter not in _DESIGN_PARAMETERS or parameter in {"mesh_um","absorber_um","absorber_strength"}:
+        raise ValueError("Choose a physical grating, waveguide, or target-beam parameter")
+    if not np.isfinite([start,stop]).all() or start >= stop or not 3 <= points <= 61:
+        raise ValueError("Use 3–61 points with increasing finite limits")
+    rows=[]
+    for index,value in enumerate(np.linspace(start,stop,points)):
+        run_jobs.progress(index,points,"Finite grating parameter sweep")
+        result=solve_finite_grating(_with(model,parameter,float(value)))
+        rows.append({"parameter_value":int(round(value)) if parameter=="periods" else float(value),
+                     **_compact(result)})
+    eligible=[row for row in rows if abs(row["numerical_or_absorber_residual"]) <= .03]
+    if not eligible:
+        raise ValueError("No sweep point met the 3% power-budget screen; refine the domain before optimization")
+    best=max(eligible,key=lambda row:row["target_free_space_mode"])
+    return {"parameter":parameter,"rows":rows,"best":best,
+            "eligibility":"|numerical or absorber residual| <= 0.03"}
+
+
+def finite_grating_tolerance(model: FiniteGratingModel, uncertainties: list[dict],
+                             samples: int = 20, seed: int = 12345,
+                             minimum_efficiency: float = .5,
+                             maximum_reflection: float = .05,
+                             minimum_directionality: float = .5) -> dict:
+    if not 5 <= samples <= 200:
+        raise ValueError("Use 5–200 tolerance samples")
+    normalized=[]
+    for item in uncertainties:
+        name=str(item["parameter"]); sigma=float(item["sigma"])
+        if name not in _DESIGN_PARAMETERS or name in {"mesh_um","absorber_um","absorber_strength"} or sigma <= 0:
+            raise ValueError("Tolerance parameters must be physical finite-device inputs with positive sigma")
+        lower=float(item.get("lower",-np.inf)); upper=float(item.get("upper",np.inf))
+        if lower >= upper:
+            raise ValueError("Every fabrication bound must have lower < upper")
+        normalized.append({"parameter":name,"sigma":sigma,
+            "lower":lower,"upper":upper})
+    if not normalized or len(normalized)>6:
+        raise ValueError("Provide 1–6 uncertain parameters")
+    rng=np.random.default_rng(seed); rows=[]
+    for sample in range(samples):
+        run_jobs.progress(sample,samples,"Finite grating fabrication tolerance")
+        values=asdict(model)
+        for item in normalized:
+            draw=float(np.clip(rng.normal(float(values[item["parameter"]]),item["sigma"]),item["lower"],item["upper"]))
+            values[item["parameter"]]=int(round(draw)) if item["parameter"]=="periods" else draw
+        try:
+            result=solve_finite_grating(FiniteGratingModel(**values)); row={"sample":sample,"parameters":{i["parameter"]:values[i["parameter"]] for i in normalized},**_compact(result)}
+            row["passed_specification"]=bool(row["target_free_space_mode"]>=minimum_efficiency and row["back_reflection"]<=maximum_reflection and row["directionality"]>=minimum_directionality and abs(row["numerical_or_absorber_residual"])<=.03)
+            rows.append(row)
+        except (ValueError,np.linalg.LinAlgError) as exc:
+            rows.append({"sample":sample,"parameters":{i["parameter"]:values[i["parameter"]] for i in normalized},"error":str(exc),"passed_specification":False})
+    valid=[row for row in rows if "error" not in row]
+    if not valid: raise ValueError("Every fabrication sample failed")
+    values=np.array([row["target_free_space_mode"] for row in valid])
+    serialized_uncertainties=[{**item,
+        "lower":item["lower"] if np.isfinite(item["lower"]) else None,
+        "upper":item["upper"] if np.isfinite(item["upper"]) else None}
+        for item in normalized]
+    return {"samples":rows,"completed":len(valid),"failed":samples-len(valid),"seed":seed,
+        "uncertainties":serialized_uncertainties,"specification":{"minimum_efficiency":minimum_efficiency,
+        "maximum_reflection":maximum_reflection,"minimum_directionality":minimum_directionality,
+        "maximum_power_residual":.03},"yield_fraction":float(sum(r["passed_specification"] for r in rows)/samples),
+        "efficiency_statistics":{"mean":float(values.mean()),"sd":float(values.std(ddof=1)) if len(values)>1 else 0,
+        "p05":float(np.percentile(values,5)),"median":float(np.median(values)),"p95":float(np.percentile(values,95))},
+        "interpretation":"Yield is conditional on the entered independent Gaussian fabrication model and numerical power-budget screen."}
+
+
+def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
+                            generations: int = 3, population: int = 5,
+                            seed: int = 12345, minimum_directionality: float = 0,
+                            maximum_reflection: float = 1,
+                            maximum_power_residual: float = .03,
+                            robust_samples: int = 1,
+                            uncertainty_sigma: dict | None = None,
+                            variability_weight: float = 0) -> dict:
+    if not 1 <= len(variables) <= 5 or not 1 <= generations <= 30 or not 4 <= population <= 15:
+        raise ValueError("Use 1–5 variables, 1–30 generations, and population 4–15")
+    names=[]; bounds=[]
+    for item in variables:
+        name=str(item["parameter"]); lower=float(item["lower"]); upper=float(item["upper"])
+        if name not in _DESIGN_PARAMETERS or name in {"mesh_um","absorber_um","absorber_strength"} or not lower<upper or name in names:
+            raise ValueError("Optimization variables must be unique physical inputs with increasing bounds")
+        names.append(name); bounds.append((lower,upper))
+    if not 1 <= robust_samples <= 9: raise ValueError("Use 1–9 fixed robust samples per candidate")
+    sigmas={str(k):float(v) for k,v in (uncertainty_sigma or {}).items() if str(k) in names and float(v)>0}
+    rng=np.random.default_rng(seed); perturb=rng.normal(size=(robust_samples,len(names))); history=[]
+    def evaluate(vector):
+        losses=[]
+        for sample in range(robust_samples):
+            values=[]
+            for i,(name,(lower,upper)) in enumerate(zip(names,bounds)):
+                value=float(vector[i]+perturb[sample,i]*sigmas.get(name,0)); values.append(float(np.clip(value,lower,upper)))
+            candidate=model
+            for name,value in zip(names,values): candidate=_with(candidate,name,value)
+            try:
+                result=solve_finite_grating(candidate); e=result["efficiencies"]
+                violation=max(0,minimum_directionality-e["directionality"])+max(0,e["back_reflection"]-maximum_reflection)+max(0,abs(e["numerical_or_absorber_residual"])-maximum_power_residual)
+                losses.append(-e["target_free_space_mode"]+1e3*violation)
+            except (ValueError,np.linalg.LinAlgError): losses.append(1e6)
+        score=float(np.mean(losses)+variability_weight*np.std(losses)); history.append({"parameters":{k:float(v) for k,v in zip(names,vector)},"loss":score})
+        run_jobs.progress(len(history),max(1,population*len(names)*(generations+1)),"Finite grating optimization")
+        return score
+    result=differential_evolution(evaluate,bounds,seed=seed,maxiter=generations,popsize=population,polish=False,updating="immediate",workers=1)
+    best=model
+    for name,value in zip(names,result.x): best=_with(best,name,float(value))
+    solved=solve_finite_grating(best); e=solved["efficiencies"]
+    nominal_feasible=e["directionality"]>=minimum_directionality and e["back_reflection"]<=maximum_reflection and abs(e["numerical_or_absorber_residual"])<=maximum_power_residual
+    robust_efficiencies=[]; robust_pass=[]
+    for sample in range(robust_samples):
+        candidate=best
+        for i,(name,(lower,upper)) in enumerate(zip(names,bounds)):
+            value=float(np.clip(result.x[i]+perturb[sample,i]*sigmas.get(name,0),lower,upper))
+            candidate=_with(candidate,name,value)
+        trial=solve_finite_grating(candidate)["efficiencies"]
+        robust_efficiencies.append(trial["target_free_space_mode"])
+        robust_pass.append(trial["directionality"]>=minimum_directionality and
+            trial["back_reflection"]<=maximum_reflection and
+            abs(trial["numerical_or_absorber_residual"])<=maximum_power_residual)
+    robust_summary={"mean_efficiency":float(np.mean(robust_efficiencies)),
+        "sd_efficiency":float(np.std(robust_efficiencies)),
+        "minimum_efficiency":float(np.min(robust_efficiencies)),
+        "all_samples_feasible":bool(all(robust_pass))}
+    feasible=nominal_feasible and robust_summary["all_samples_feasible"]
+    return {"best_parameters":{k:(int(round(v)) if k=="periods" else float(v)) for k,v in zip(names,result.x)},
+        "best_result":solved,"best_efficiency":e["target_free_space_mode"],"feasible":feasible,
+        "constraints":{"minimum_directionality":minimum_directionality,"maximum_reflection":maximum_reflection,"maximum_power_residual":maximum_power_residual},
+        "robust_samples":robust_samples,"uncertainty_sigma":sigmas,"variability_weight":variability_weight,
+        "robust_summary":robust_summary,
+        "evaluations":len(history),"history":history,"seed":seed,
+        "warning":"Bounded stochastic optimization does not prove a global optimum. Run independent seeds, Trust validation, wavelength sampling, and fabrication tolerance before accepting the design."}

@@ -171,6 +171,15 @@ def prepare(model: StackModel):
         if np.any(np.abs(kz2) < 1e-11):
             raise ValueError("An order is at grazing cutoff; adjust wavelength or angle slightly")
     if patterned:
+        # grcwa indexes the material FFT by pairwise reciprocal-order
+        # differences.  A strongly rectangular lattice can require a much
+        # larger raster along one reciprocal coordinate than nG alone suggests.
+        required_grid = int(np.max(np.ptp(np.asarray(obj.G, dtype=int), axis=0)+1))
+        if model.grid_size < required_grid:
+            raise ValueError(
+                f"Fourier budget {model.order_budget} and this lattice aspect ratio "
+                f"require a geometry grid of at least {required_grid} cells per axis; "
+                f"increase Geometry grid from {model.grid_size} or lower the Fourier budget")
         obj.GridLayer_geteps(np.concatenate([_grid(model.layers[i],model).ravel() for i in patterned]))
     obj.MakeExcitationPlanewave(float(model.polarization == "p"), 0,
                                  float(model.polarization == "s"), 0)

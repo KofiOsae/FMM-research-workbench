@@ -106,6 +106,13 @@ class UpgradeTests(unittest.TestCase):
         json.dumps(result,allow_nan=False)
         self.assertTrue(any(item['status']=='complete' for item in run_jobs.history()))
 
+    def test_completed_job_result_can_be_released(self):
+        key=run_jobs.submit(lambda: ({'large_result':[1,2,3]},200))
+        self.assertEqual(self.wait(key)['status'],'complete')
+        self.assertTrue(run_jobs.forget(key))
+        self.assertIsNone(run_jobs.snapshot(key))
+        self.assertTrue(any(item['job_id']==key for item in run_jobs.history()))
+
     def test_job_failure(self):
         def work():
             raise ValueError('Known failure')
@@ -138,6 +145,11 @@ class UpgradeTests(unittest.TestCase):
         thread=Thread(target=server.serve_forever,daemon=True);thread.start()
         base=f'http://127.0.0.1:{server.server_port}'
         try:
+            with urlopen(base+'/health') as response:
+                health=json.loads(response.read())
+                self.assertEqual(health['status'],'ok')
+                self.assertEqual(health['version'],'scientific-workflow-2026-10-09')
+                self.assertEqual(health['queue']['solver_workers'],1)
             with urlopen(base+'/workbench.js') as response:
                 script=response.read()
                 self.assertIn(b'Run from here',script)
@@ -174,6 +186,14 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Finite grating',script)
                 self.assertIn(b'finite_grating_coupler',script)
                 self.assertIn(b'runFiniteGrating',script)
+                self.assertIn(b'finite_grating_benchmark',script)
+                self.assertIn(b'runFgSpectrum',script)
+                self.assertIn(b'runFgOptimize',script)
+                self.assertIn(b'runFgTolerance',script)
+                self.assertIn(b'finite_grating_device',script)
+                self.assertIn(b'finiteGratingSchematic',script)
+                self.assertIn(b'Parameter definitions, supported coupling, and limits',script)
+                self.assertIn(b'How to read this result',script)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -190,6 +210,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'From a physical claim to a publication package',guide)
                 self.assertIn(b'Publication uses 2&times;10<sup>-4</sup>',guide)
                 self.assertIn(b'Calculate finite grating-to-waveguide efficiency',guide)
+                self.assertIn(b'Research map for each capability',guide)
+                self.assertIn(b'Marchetti et al.',guide)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)

@@ -114,6 +114,32 @@ def snapshot(key, cancel=False):
     return {k:v for k,v in result.items() if k not in ('created','started','finished')}
 
 
+def forget(key):
+    """Release an acknowledged completed result while retaining history."""
+    with _lock:
+        job = _jobs.get(key)
+        if job is None:
+            return False
+        if job['status'] in ('queued', 'running'):
+            return False
+        del _jobs[key]
+        return True
+
+
+def status_summary():
+    """Small health payload that never exposes result arrays."""
+    with _lock:
+        states = [job['status'] for job in _jobs.values()]
+    return {
+        'queued': states.count('queued'),
+        'running': states.count('running'),
+        'retained_completed_results': sum(
+            state in ('complete', 'failed', 'cancelled') for state in states),
+        'maximum_active_jobs': 4,
+        'solver_workers': 1,
+    }
+
+
 def history(limit=30):
     """Return recent durable job summaries, newest first."""
     limit = max(1, min(int(limit), _history_limit))

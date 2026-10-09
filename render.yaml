@@ -13,4 +13,10 @@ services:
         value: "1"
       - key: FMM_USER_MATERIALS_PATH
         value: /tmp/fmm-user-materials.json
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: MKL_NUM_THREADS
+        value: "1"
     autoDeploy: true
