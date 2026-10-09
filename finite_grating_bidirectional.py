@@ -181,8 +181,12 @@ def solve_fiber_incident(model):
         {"title":"Computational Electrodynamics: The Finite-Difference Time-Domain Method","authors":"Taflove and Hagness","applies_to":"equivalent-current and total/scattered-field source construction"}]}
 
 
-def reciprocity_certificate(model):
-    """Run two independent sources and compare the paired port coefficients."""
+def reciprocity_certificate(model, refine: bool = False):
+    """Run two independent sources and compare the paired port coefficients.
+
+    When ``refine`` is true, repeat both directions at a 1.25-times finer mesh
+    and require the two directional efficiencies themselves to stabilize.
+    """
     from finite_grating import solve_finite_grating
     forward=solve_finite_grating(replace(model,excitation="waveguide"))
     reverse=solve_fiber_incident(replace(model,excitation="fiber"))
@@ -193,7 +197,7 @@ def reciprocity_certificate(model):
     # raw complex coefficients remain exported for phase-reference auditing.
     magnitude_error=abs(abs(fc)-abs(rc))/max(abs(fc),abs(rc),1e-30)
     efficiency_error=abs(abs(fc)**2-abs(rc)**2)
-    return {"forward":forward,"reverse":reverse,
+    report={"forward":forward,"reverse":reverse,
         "forward_complex_coefficient":f,"reverse_complex_coefficient":r,
         "relative_magnitude_error":float(magnitude_error),
         "absolute_efficiency_error":float(efficiency_error),
@@ -202,3 +206,24 @@ def reciprocity_certificate(model):
                      "maximum_absolute_efficiency_error":.02},
         "phase_status":"Raw phases are reported, but phase reciprocity is not certified until both port reference planes are de-embedded to the same origin.",
         "interpretation":"Two independent linear solves are compared: guided eigenmode launch and a time-reversed Gaussian equivalent-current launch. A failed screen can reflect discretization, absorber, finite-window port truncation, or inconsistent reference planes; it must not be hidden by averaging the two directions."}
+    if refine:
+        refined_model=replace(model,mesh_um=model.mesh_um/1.25)
+        refined=reciprocity_certificate(refined_model,False)
+        forward_change=abs(refined["forward"]["efficiencies"]["selected_mode_coupling"]-
+                           forward["efficiencies"]["selected_mode_coupling"])
+        reverse_change=abs(refined["reverse"]["efficiencies"]["selected_mode_coupling"]-
+                           reverse["efficiencies"]["selected_mode_coupling"])
+        refinement_pass=bool(max(forward_change,reverse_change)<=.02 and
+                             refined["relative_magnitude_error"]<=.05 and
+                             refined["absolute_efficiency_error"]<=.02)
+        report["mesh_refinement"]={"factor":1.25,"mesh_um":refined_model.mesh_um,
+            "forward_efficiency_change":float(forward_change),
+            "reverse_efficiency_change":float(reverse_change),
+            "refined_relative_magnitude_error":refined["relative_magnitude_error"],
+            "refined_absolute_efficiency_error":refined["absolute_efficiency_error"],
+            "passed":refinement_pass,
+            "criterion":"Both directional efficiencies change by at most 0.02 absolute and the refined reciprocity errors pass the base screen."}
+        report["refined_coefficients"]={"forward":refined["forward_complex_coefficient"],
+                                        "reverse":refined["reverse_complex_coefficient"]}
+        report["passed_research_screen"]=bool(report["passed_research_screen"] and refinement_pass)
+    return report

@@ -644,7 +644,8 @@ class Handler(BaseHTTPRequestHandler):
             elif operation == "finite_grating_validation":
                 payload = validate_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_reciprocity":
-                payload = reciprocity_certificate(FiniteGratingModel(**data["model"]))
+                payload = reciprocity_certificate(FiniteGratingModel(**data["model"]),
+                    bool(data.get("refine", True)))
             elif operation == "finite_grating_benchmark":
                 payload = benchmark_finite_grating(FiniteGratingModel(**data["model"]))
             elif operation == "finite_grating_spectrum":
