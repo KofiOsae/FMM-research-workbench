@@ -59,7 +59,8 @@ def solve_fiber_incident(model):
     wavevector and signed global angle have the opposite sign.
     """
     from finite_grating import (_axes, _permittivity, _absorber_sigma,
-        _operator, _te_mode, _mode_amplitudes, _angular_power)
+        _operator, _te_mode, _mode_amplitudes, _angular_power,
+        _angular_spectrum_rows)
 
     model.validate(); x,z=_axes(model); dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
     eps,reference=_permittivity(model,x,z); k0=2*np.pi/model.wavelength_um
@@ -115,7 +116,8 @@ def solve_fiber_incident(model):
     guided_left=beta*abs(leftward)**2/incident_power
     guided_right=beta*abs(rightward)**2/incident_power
     coefficient=np.sqrt(beta)*rightward/np.sqrt(incident_power)
-    *_,reflected_power,_=_angular_power(scattered,top_j,x,z,model.cladding_n,k0,True)
+    rkx,rkz,rup,rprop,reflected_power,rdk=_angular_power(
+        scattered,top_j,x,z,model.cladding_n,k0,True)
     lower_n=(model.handle_n if model.box_thickness_um is not None and model.handle_n is not None
              else model.substrate_n)
     *_,substrate_power,_=_angular_power(total,bottom_j,x,z,lower_n,k0,False)
@@ -135,6 +137,14 @@ def solve_fiber_incident(model):
        "insertion_loss_db":float(-10*np.log10(max(guided_right,1e-30))),
        "directionality":float(guided_right/max(guided_left+guided_right,1e-30))}
     core=(z>=0)&(z<=model.waveguide_height_um)
+    field=_field_payload(total,incident,scattered,eps,x,z,k0)
+    field["annotations"]={"source":{"axis":"z","position_um":float(z[injection_j]),
+        "label":"Gaussian equivalent-current plane"},
+        "monitors":[{"axis":"x","position_um":float(x[left_i]),"label":"left guided port"},
+                    {"axis":"x","position_um":float(x[right_i]),"label":"right guided port"},
+                    {"axis":"z","position_um":float(z[top_j]),"label":"incident/reflection monitor"},
+                    {"axis":"z","position_um":float(z[bottom_j]),"label":"lower radiation monitor"}],
+        "absorber_um":float(model.absorber_um)}
     stack=({"type":"semi_infinite_substrate","substrate_n":model.substrate_n}
            if model.box_thickness_um is None else
            {"type":"finite_box_and_handle","box_n":model.substrate_n,
@@ -159,7 +169,11 @@ def solve_fiber_incident(model):
           "selection":"maximum electric-profile localization in the device layer above z=0",
           "normalization":"integral |Ey|^2 dz = 1"},
       "efficiencies":e,"selected_port_coefficient":_complex_value(coefficient),
-      "field":_field_payload(total,incident,scattered,eps,x,z,k0),
+      "angular_spectrum":{"global_angle_convention":"Outgoing angle is measured from global +z toward +x; the reciprocal incoming wave reverses the full wavevector.",
+          "incident":_angular_spectrum_rows(akx,akz,down,aprop,model.cladding_n,k0,incident_power),
+          "reflected":_angular_spectrum_rows(rkx,rkz,rup,rprop,model.cladding_n,k0,incident_power),
+          "density_integral_note":"Integrate power_fraction_density_per_rad_per_um over kx (rad/µm) to recover the channel fraction."},
+      "field":field,
       "reciprocity_statement":"This is a genuine, independent Gaussian-source field solve. Compare it with the separate guided-source solve using the bidirectional reciprocity certificate.",
       "scope":"2D scalar TE finite-device in-coupling with a Gaussian angular-spectrum port. The beam is a width-invariant Gaussian sheet, not a full 3D circular fiber mode. Full-vector polarization mixing, finite lateral width and multiple guided modes are outside this model.",
       "references":[{"title":"Optical Waveguide Theory","authors":"Snyder and Love","applies_to":"mode normalization and reciprocity"},

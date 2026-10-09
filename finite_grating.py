@@ -269,6 +269,18 @@ def _angular_power(field, j, x, z, n, k0, upward=True):
     return kx,kz,component,propagating,power,dk
 
 
+def _angular_spectrum_rows(kx, kz, component, propagating, n, k0,
+                           normalization_power):
+    """Serialize a propagating angular spectrum with an integrable density."""
+    valid=np.where(propagating)[0]
+    angle=np.rad2deg(np.arcsin(np.clip(kx[valid]/(n*k0),-1,1)))
+    density=kz[valid]*abs(component[valid])**2/(2*np.pi*max(normalization_power,1e-30))
+    return [{"kx_per_um":float(kx[i]),"kx_over_k0":float(kx[i]/k0),
+             "global_angle_deg":float(a),
+             "power_fraction_density_per_rad_per_um":float(d)}
+            for i,a,d in zip(valid,angle,density)]
+
+
 def solve_finite_grating(model: FiniteGratingModel) -> dict:
     if model.excitation == "fiber":
         from finite_grating_bidirectional import solve_fiber_incident
@@ -352,15 +364,29 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
         "selected_port_coefficient":{"real":float(np.real(coefficient)),
             "imag":float(np.imag(coefficient)),"magnitude":float(abs(coefficient)),
             "phase_deg":float(np.rad2deg(np.angle(coefficient)))},
+        "angular_spectrum":{"global_angle_convention":"Angle is measured from global +z toward +x for outgoing waves.",
+            "outgoing":_angular_spectrum_rows(kx,kz,up,prop,model.cladding_n,k0,incident_power),
+            "target":_angular_spectrum_rows(kx,kz,target_spectrum,prop,model.cladding_n,k0,target_norm),
+            "density_integral_note":"Integrate power_fraction_density_per_rad_per_um over kx (rad/µm) to recover the channel fraction."},
         "field":{"x_um":x[::stride].tolist(),"z_um":z[::stride].tolist(),
                  "normalization":"Ey is divided by max|Ey|; relative Poynting components are divided by max sqrt(Sx^2+Sz^2)",
                  "normalized_Ey2":intensity.T.tolist(),
                  "normalized_Ey_real":(sampled.real/field_scale).T.tolist(),
                  "normalized_Ey_imag":(sampled.imag/field_scale).T.tolist(),
                  "Ey_phase_rad":np.angle(sampled).T.tolist(),
+                 "incident_Ey2":(abs(reference_field[::stride,::stride]/field_scale)**2).T.tolist(),
+                 "incident_Ey_real":(reference_field[::stride,::stride].real/field_scale).T.tolist(),
+                 "scattered_Ey2":(abs((total-reference_field)[::stride,::stride]/field_scale)**2).T.tolist(),
+                 "scattered_Ey_real":((total-reference_field)[::stride,::stride].real/field_scale).T.tolist(),
                  "normalized_Sx":(sx_power[::stride,::stride]/power_scale).T.tolist(),
                  "normalized_Sz":(sz_power[::stride,::stride]/power_scale).T.tolist(),
-                 "epsilon_r":sampled_eps.T.tolist()},
+                 "epsilon_r":sampled_eps.T.tolist(),
+                 "annotations":{"source":{"axis":"x","position_um":float(x[source_i]),"label":"guided-mode source"},
+                    "monitors":[{"axis":"x","position_um":float(x[left_i]),"label":"left guided port"},
+                                {"axis":"x","position_um":float(x[right_i]),"label":"right guided port"},
+                                {"axis":"z","position_um":float(z[top_j]),"label":"upper angular monitor"},
+                                {"axis":"z","position_um":float(z[bottom_j]),"label":"lower angular monitor"}],
+                    "absorber_um":float(model.absorber_um)}},
         "reciprocity_statement":"This single result is one genuine waveguide-source solve, not an independently solved reciprocal field. Run the bidirectional reciprocity certificate for the independent Gaussian-source comparison.",
         "scope":"2D scalar TE finite-device coupling solver, invariant across width. It supports independent guided-mode and Gaussian angular-spectrum sources, finite length, partial etch, optional finite BOX and handle, guided-mode projection, radiation channels and complex fields. It does not represent finite lateral width, a true 3D fiber mode, full-vector polarization mixing, per-tooth apodization, or multiple guided modes.",
         "references":[{"title":"Optical Waveguide Theory","authors":"Snyder and Love","applies_to":"mode normalization and reciprocity"},
