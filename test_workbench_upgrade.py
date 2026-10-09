@@ -169,7 +169,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'scientific-workflow-2026-10-09')
+                self.assertEqual(health['version'],'finite-stack-2026-10-09')
                 self.assertEqual(health['queue']['solver_workers'],1)
             with urlopen(base+'/api/usage-stats') as response:
                 statistics=json.loads(response.read())
@@ -219,6 +219,10 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'finiteGratingSchematic',script)
                 self.assertIn(b'Parameter definitions, supported coupling, and limits',script)
                 self.assertIn(b'How to read this result',script)
+                self.assertIn(b'fgFiniteBox',script)
+                self.assertIn(b'fgDiscretization',script)
+                self.assertIn(b'fgFieldQuantity',script)
+                self.assertIn(b'normalized_Ey_real',script)
                 self.assertIn(b'Usage statistics',script)
                 self.assertIn(b'Anonymous browsers',script)
                 self.assertIn(b'/api/usage/visit',script)
@@ -245,7 +249,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Optimize a 50:50 two-order splitter',guide)
                 self.assertIn(b'From a physical claim to a publication package',guide)
                 self.assertIn(b'Publication uses 2&times;10<sup>-4</sup>',guide)
-                self.assertIn(b'Calculate finite grating-to-waveguide efficiency',guide)
+                self.assertIn(b'Calculate waveguide-to-grating target-mode efficiency',guide)
                 self.assertIn(b'Research map for each capability',guide)
                 self.assertIn(b'Marchetti et al.',guide)
             with urlopen(base+'/') as response:

@@ -325,7 +325,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
-                'version':'scientific-workflow-2026-10-09',
+                'version':'finite-stack-2026-10-09',
                 'public_demo': PUBLIC_DEMO,
                 'queue': run_jobs.status_summary()}).encode(), "application/json")
         else:

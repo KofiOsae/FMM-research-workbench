@@ -88,39 +88,48 @@ The reported directional efficiencies are \(|a_m^\pm|^2\).
 
 The **Finite grating coupler** workspace implements a two-dimensional scalar
 TE finite-difference frequency-domain calculation. It launches the normalized
-fundamental output-waveguide mode toward a finite, partially or fully etched
-grating. Radiation into a selected free-space Gaussian mode is converted to
-the reverse illumination-to-waveguide efficiency by Lorentz reciprocity. The
-domain contains a finite grating, substrate, uniform output waveguide, graded
+fundamental waveguide mode toward a finite, partially or fully etched grating.
+It calculates the complex overlap of the outgoing radiation with a selected
+Gaussian target mode. This is one genuine out-coupling solve. It is not
+converted into or substituted for an independently solved incoming-beam result.
+The domain contains a finite grating, either a homogeneous lower half-space or
+a finite BOX and handle, a uniform waveguide port, graded
 complex-coordinate absorbers, and normalized modal and radiation monitors.
-Its main observable is
+Its main target observable is
 
 \[
-\eta_{\mathrm{TE0}}^+=\frac{P_{\mathrm{TE0}}^+}{P_{\mathrm{source,in}}}.
+\eta_{\mathrm{target}}=\frac{|\langle u_{\mathrm{target}},
+E_{\mathrm{radiated}}\rangle_P|^2}{P_{\mathrm{target}}P_{\mathrm{incident}}}.
 \]
 
-It must independently report \(\eta_{\mathrm{TE0}}^-\), reflected source
-power, upward radiation, substrate radiation, material absorption, other bound
-modes, and numerical residual.  For passive media the normalized budget should
+The current one-mode scalar implementation reports reflected guided power,
+residual forward guided power, upward radiation, substrate radiation, and
+numerical residual. For passive lossless media the normalized budget should
 satisfy
 
 \[
-1\approx \eta_{\mathrm{TE0}}^+ + \eta_{\mathrm{TE0}}^- + R
-+P_\mathrm{up}+P_\mathrm{sub}+A+P_\mathrm{other}+\epsilon_\mathrm{num}.
+1\approx P_\mathrm{guided,fwd} + P_\mathrm{guided,back}
++P_\mathrm{up}+P_\mathrm{sub}+\epsilon_\mathrm{num}.
 \]
 
 The interface reports target-mode efficiency, insertion loss, upward and
 substrate radiation, residual forward guided power, back-reflection,
 directionality, accounted power, and numerical/absorber residual. Its
 validation command independently changes mesh spacing, absorber strength, and
-all domain paddings. A publication claim also requires wavelength sampling,
+all domain paddings, and interface rasterization. The selectable cell-averaged
+epsilon corrects the scalar TE mass coefficient; it is not the anisotropic
+subpixel tensor of a full-vector Maxwell discretization. Complex Ey, its phase,
+relative reconstructed Poynting components, and the epsilon raster are exported.
+A publication claim also requires wavelength sampling,
 monitor-position checks, and comparison with an independent solver or
 published benchmark.
 
 This initial solver is restricted to reciprocal, isotropic, lossless 2D TE
 structures invariant across their width. It does not yet support full-vector
 3D focusing gratings, arbitrary finite-width masks, material absorption, or
-several output modes. Those limitations are explicit in every result export.
+several output modes. It also does not yet contain a validated incoming Gaussian
+equivalent-current source, so finite-device reciprocity error is not reported.
+Those limitations are explicit in every result export.
 
 ## 5. Implemented finite-device design workflow
 
@@ -145,9 +154,9 @@ design cycle:
 6. **Fabrication tolerance:** propagate stated independent Gaussian parameter
    distributions and report efficiency percentiles plus yield against the
    entered efficiency, directionality, reflection, and residual limits.
-7. **Trust validation:** independently vary mesh, absorber strength, and all
-   domain paddings. Recompute a locally refined spectrum on the selected final
-   design.
+7. **Trust validation:** independently vary mesh, absorber strength, all domain
+   paddings, and binary versus cell-averaged scalar interfaces. Recompute a
+   locally refined spectrum on the selected final design.
 
 Project files and design-study exports preserve the finite-device inputs,
 baseline controls, spectrum, parameter sweep, optimizer history, tolerance
@@ -177,11 +186,11 @@ and fabrication measurements. They report 83% simulated peak coupling, 81%
 best measured coupling, and a simulated 1 dB bandwidth of 32.8 nm.
 
 Those headline values are **not** a numeric acceptance target for the current
-uniform-grating, single-substrate scalar model. The paper is used to verify
+uniform-grating scalar model. The paper is used to verify
 definitions, output accounting, spectrum/bandwidth procedure, constrained
 design sequence, and tolerance reporting. A direct quantitative reproduction
-requires its per-tooth apodization, finite oxide thickness and silicon handle,
-followed by a matched full-vector calculation. The Workbench labels this
+still requires its per-tooth apodization and a matched full-vector calculation;
+the Workbench now represents the finite oxide and silicon handle. It labels this
 boundary rather than silently comparing unlike geometries.
 
 ## 8. Literature basis

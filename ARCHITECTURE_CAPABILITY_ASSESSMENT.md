@@ -5,6 +5,10 @@ scientific solver milestone. A capability is considered implemented only when
 its physical scope, normalization, validation, interface, export contract, and
 regression tests are all present.
 
+The source-to-code audit is maintained in `LITERATURE_IMPLEMENTATION_MATRIX.md`.
+The installed periodic solver factorization is inspected separately in
+`FMM_FACTORIZATION_AUDIT.md`.
+
 ## 1. Current architecture
 
 ### Request and execution path
@@ -90,6 +94,25 @@ thread and the finite FDFD grid is capped at 35,000 cells. Local installations
 retain the 120,000-cell ceiling. These controls reduce process termination and
 503 responses; they do not turn the free shared service into a high-performance
 compute platform.
+
+### Deployment configuration verified from the current repository
+
+- `Dockerfile` contains one effective command: `python app.py`.
+- The image default is `HOST=0.0.0.0`, `PORT=7860`; its Docker health check uses
+  that image default.
+- `render.yaml` explicitly supplies `HOST=0.0.0.0` and `PORT=10000`. The
+  application reads those environment variables, so Render's value supersedes
+  the image default. This is a normal environment override, not a port conflict.
+- Render health path is `/health`; static assets and numerical endpoints share
+  the same process and bounded solver queue.
+- Live verification of the deployed build included `/`, `/health`,
+  `/workbench.js`, a finite-device smoke solve, and repeated health requests.
+  An external browsing tool's “Internal Error” did not provide an HTTP status or
+  traceback and is not recorded as a confirmed server-side 500.
+
+The public free instance can still restart, idle, or exhaust its limited memory.
+The UI preserves inputs, reports interrupted jobs, and suggests a smaller
+numerical budget; durable multi-user jobs require production infrastructure.
 
 ## 4. Capability gaps against the requested research chain
 

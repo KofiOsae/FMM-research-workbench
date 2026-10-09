@@ -49,7 +49,7 @@ from research_validation import (diffraction_order_map, linked_observable_sweep,
 from finite_grating import (FiniteGratingModel, solve_finite_grating,
                             benchmark_finite_grating, finite_grating_spectrum,
                             finite_grating_sweep, finite_grating_tolerance,
-                            optimize_finite_grating)
+                            optimize_finite_grating, _permittivity)
 import materials
 
 
@@ -128,6 +128,55 @@ class PhysicalValidation(unittest.TestCase):
         self.assertGreater(power["back_reflection"], 0)
         self.assertLessEqual(power["target_free_space_mode"], power["upward_radiation"]*1.01)
         self.assertIn("reciprocal", result["reciprocity_statement"].lower())
+
+    def test_finite_grating_full_soi_stack_assigns_box_and_handle(self):
+        model = FiniteGratingModel(box_thickness_um=.5, handle_n=3.48,
+            substrate_depth_um=1.2, absorber_um=.3, mesh_um=.1,
+            discretization="binary")
+        x=np.array([-.2,.1]); z=np.array([-.8,-.25,.1])
+        eps,reference=_permittivity(model,x,z)
+        self.assertAlmostEqual(eps[0,0].real,3.48**2)
+        self.assertAlmostEqual(eps[0,1].real,model.substrate_n**2)
+        self.assertAlmostEqual(eps[0,2].real,model.core_n**2)
+        self.assertTrue(np.allclose(reference,[3.48**2,model.substrate_n**2,
+                                               model.core_n**2]))
+
+    def test_finite_grating_cell_average_preserves_fractional_interfaces(self):
+        model = FiniteGratingModel(periods=2, mesh_um=.1,
+            discretization="cell_average", subpixel_samples=5)
+        x=np.arange(-.2,1.5,.1); z=np.arange(-.4,.7,.1)
+        eps,_=_permittivity(model,x,z)
+        material_values=(model.cladding_n**2,model.substrate_n**2,model.core_n**2)
+        fractional=[value for value in eps.real.ravel()
+                    if all(abs(value-known)>1e-8 for known in material_values)]
+        self.assertTrue(fractional)
+        self.assertGreater(min(fractional),min(material_values))
+        self.assertLess(max(fractional),max(material_values))
+
+    def test_finite_grating_exports_complex_phase_flux_and_raster(self):
+        result=solve_finite_grating(FiniteGratingModel(periods=2,mesh_um=.08,
+            left_padding_um=1,right_padding_um=1,top_padding_um=1,
+            substrate_depth_um=1,absorber_um=.3,
+            discretization="cell_average",subpixel_samples=3))
+        field=result["field"]
+        shape=np.shape(field["normalized_Ey2"])
+        for key in ("normalized_Ey_real","normalized_Ey_imag","Ey_phase_rad",
+                    "normalized_Sx","normalized_Sz","epsilon_r"):
+            self.assertEqual(np.shape(field[key]),shape)
+            self.assertTrue(np.isfinite(field[key]).all())
+        self.assertEqual(result["formulation"]["time_convention"],"exp(-i omega t)")
+        self.assertIn("not an independently solved",result["reciprocity_statement"])
+
+    def test_finite_grating_full_soi_selects_device_mode_and_closes_budget(self):
+        result=solve_finite_grating(FiniteGratingModel(periods=4,mesh_um=.08,
+            left_padding_um=1.2,right_padding_um=1.2,top_padding_um=1.2,
+            substrate_depth_um=3.0,absorber_um=.35,
+            box_thickness_um=2.0,handle_n=3.48,
+            discretization="cell_average",subpixel_samples=3))
+        self.assertGreater(result["mode"]["device_core_fraction"],.05)
+        self.assertLess(abs(result["efficiencies"]["numerical_or_absorber_residual"]),.03)
+        self.assertEqual(result["geometry"]["lower_stack"]["type"],
+                         "finite_box_and_handle")
 
     def test_custom_mask_resamples_with_documented_orientation(self):
         source = bytearray(8 * 8)

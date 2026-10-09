@@ -1,8 +1,15 @@
-"""Two-dimensional finite grating-to-waveguide coupling by scalar TE FDFD.
+"""Two-dimensional finite grating out-coupling by scalar TE FDFD.
 
-The reciprocal calculation launches a normalized bound waveguide mode toward a
-finite grating.  Radiation into a requested free-space beam is equal to the
-reverse beam-to-waveguide efficiency for reciprocal isotropic materials.
+The implemented source launches a normalized bound waveguide mode toward a
+finite grating.  A target-beam overlap is reported for that out-going field.
+Lorentz reciprocity motivates a reverse-coupling comparison, but a genuine
+free-space incident solve is deliberately not claimed by this module.
+
+The time convention is exp(-i omega t).  With E = y-hat Ey, the solved equation
+is (d_x^2 + d_z^2 + k0^2 epsilon_r) Ey = source for non-magnetic, isotropic
+media.  Ey and its normal derivative are continuous across material interfaces.
+This is a scalar, invariant-width approximation rather than a full-vector 3D
+fiber-coupler calculation.
 """
 from __future__ import annotations
 
@@ -22,6 +29,8 @@ class FiniteGratingModel:
     core_n: float = 3.48
     substrate_n: float = 1.444
     cladding_n: float = 1.0
+    box_thickness_um: float | None = None
+    handle_n: float | None = None
     waveguide_height_um: float = .22
     etch_depth_um: float = .07
     period_um: float = .63
@@ -34,9 +43,12 @@ class FiniteGratingModel:
     mesh_um: float = .05
     absorber_um: float = .50
     absorber_strength: float = 3.0
+    discretization: str = "binary"
+    subpixel_samples: int = 5
     target_angle_deg: float = -30.0
     target_waist_um: float = 3.0
     target_center_um: float | None = None
+    target_phase_deg: float = 0.0
 
     def validate(self) -> None:
         values = [v for v in asdict(self).values() if isinstance(v, (int, float)) and v is not None]
@@ -44,6 +56,10 @@ class FiniteGratingModel:
             raise ValueError("Finite-grating settings must be finite")
         if not .2 <= self.wavelength_um <= 20:
             raise ValueError("Wavelength must be 0.2–20 µm")
+        if min(self.core_n, self.substrate_n, self.cladding_n) <= 0:
+            raise ValueError("All refractive indices must be positive")
+        if self.handle_n is not None and self.handle_n <= 0:
+            raise ValueError("The silicon-handle refractive index must be positive")
         if not 1 <= self.periods <= 80 or not 0 < self.fill_factor < 1:
             raise ValueError("Use 1–80 periods and a fill factor strictly between zero and one")
         if not 0 < self.etch_depth_um <= self.waveguide_height_um:
@@ -56,6 +72,19 @@ class FiniteGratingModel:
         if self.absorber_um >= min(self.left_padding_um, self.right_padding_um,
                                    self.top_padding_um, self.substrate_depth_um):
             raise ValueError("Absorber thickness must be smaller than every domain padding")
+        if self.box_thickness_um is not None:
+            if self.box_thickness_um <= 0:
+                raise ValueError("Finite BOX thickness must be positive")
+            if self.handle_n is None:
+                raise ValueError("A finite BOX requires the handle-substrate refractive index")
+            clearance = self.box_thickness_um + self.absorber_um + 2*self.mesh_um
+            if self.substrate_depth_um <= clearance:
+                raise ValueError(
+                    "Substrate depth must exceed BOX thickness + absorber thickness + two mesh cells so the lower monitor and absorber lie in the handle")
+        if self.discretization not in ("binary", "cell_average"):
+            raise ValueError("Discretization must be 'binary' or 'cell_average'")
+        if not 2 <= self.subpixel_samples <= 9:
+            raise ValueError("Use 2–9 subpixel samples per axis")
         if abs(self.target_angle_deg) >= 85 or self.target_waist_um <= 0:
             raise ValueError("Target angle must be below 85° and target waist must be positive")
 
@@ -74,19 +103,55 @@ def _axes(model: FiniteGratingModel):
     return x, z
 
 
+def _point_permittivity(model: FiniteGratingModel, x, z, patterned=True):
+    """Return exact-region epsilon at broadcast-compatible sample positions."""
+    X, Z = np.broadcast_arrays(np.asarray(x), np.asarray(z))
+    if model.box_thickness_um is None:
+        below = np.full(X.shape, model.substrate_n**2)
+    else:
+        handle_n = model.handle_n if model.handle_n is not None else model.substrate_n
+        below = np.where(Z >= -model.box_thickness_um,
+                         model.substrate_n**2, handle_n**2)
+    eps = np.where(Z < 0, below, model.cladding_n**2).astype(float)
+    core = (Z >= 0) & (Z <= model.waveguide_height_um)
+    eps[core] = model.core_n**2
+    if patterned:
+        length = model.periods*model.period_um
+        phase = np.mod(X, model.period_um)/model.period_um
+        grooves = ((X >= 0) & (X < length) &
+                   (phase >= model.fill_factor))
+        etched = ((Z > model.waveguide_height_um-model.etch_depth_um) &
+                  (Z <= model.waveguide_height_um))
+        eps[grooves & etched] = model.cladding_n**2
+    return eps
+
+
 def _permittivity(model: FiniteGratingModel, x, z):
-    eps = np.where(z[None, :] < 0, model.substrate_n**2, model.cladding_n**2)
-    eps = np.repeat(eps, x.size, axis=0).astype(complex)
-    core = (z >= 0) & (z <= model.waveguide_height_um)
-    eps[:, core] = model.core_n**2
-    length = model.periods*model.period_um
-    phase = np.mod(x, model.period_um)/model.period_um
-    grooves = (x >= 0) & (x < length) & (phase >= model.fill_factor)
-    etched = (z > model.waveguide_height_um-model.etch_depth_um) & (z <= model.waveguide_height_um)
-    eps[np.ix_(grooves, etched)] = model.cladding_n**2
-    reference = np.where(z < 0, model.substrate_n**2, model.cladding_n**2).astype(complex)
-    reference[core] = model.core_n**2
-    return eps, reference
+    """Rasterize the device and its uniform port reference.
+
+    ``binary`` reproduces the legacy node-sampled model. ``cell_average``
+    averages epsilon over each finite-difference control cell by deterministic
+    supersampling.  For this scalar TE equation epsilon is the mass coefficient,
+    so volume averaging is the appropriate limited correction.  It is not the
+    anisotropic subpixel tensor required by a full-vector discretization.
+    """
+    X, Z = np.meshgrid(x, z, indexing="ij")
+    if model.discretization == "binary":
+        eps = _point_permittivity(model, X, Z, True)
+        reference_2d = _point_permittivity(model, X, Z, False)
+    else:
+        dx = float(x[1]-x[0]); dz = float(z[1]-z[0])
+        offsets = (np.arange(model.subpixel_samples)+.5)/model.subpixel_samples-.5
+        eps = np.zeros(X.shape, dtype=float)
+        reference_2d = np.zeros(X.shape, dtype=float)
+        for ox in offsets:
+            for oz in offsets:
+                eps += _point_permittivity(model, X+ox*dx, Z+oz*dz, True)
+                reference_2d += _point_permittivity(model, X+ox*dx, Z+oz*dz, False)
+        divisor = float(model.subpixel_samples**2)
+        eps /= divisor; reference_2d /= divisor
+    # The unpatterned reference is invariant along x apart from roundoff.
+    return eps.astype(complex), reference_2d.mean(axis=0).astype(complex)
 
 
 def _absorber_sigma(axis, low, high, thickness, strength):
@@ -123,15 +188,27 @@ def _te_mode(reference_eps, z, k0):
     n=interior.size
     d2=diags([np.ones(n-1),-2*np.ones(n),np.ones(n-1)],[-1,0,1],format="csr")/dz**2
     matrix=d2+diags(k0*k0*interior,0)
-    values,vectors=eigsh(matrix,k=min(6,max(1,n-2)),which="LA")
+    values,vectors=eigsh(matrix,k=min(16,max(1,n-2)),which="LA")
     order=np.argsort(values)[::-1]
     beta2=values[order]
     valid=np.where((beta2 > (k0*np.sqrt(min(reference_eps.real)))**2) &
                    (beta2 < (k0*np.sqrt(max(reference_eps.real))*1.001)**2))[0]
     if not valid.size:
         raise ValueError("No bound TE mode was found for the output waveguide")
-    beta=float(np.sqrt(beta2[valid[0]])); phi=np.zeros(z.size,dtype=complex)
-    phi[1:-1]=vectors[:,order[valid[0]]]
+    # A finite high-index handle also supports box-confined numerical modes.
+    # Select the candidate localized in the device core above z=0 instead of
+    # assuming that the largest propagation constant identifies the port.
+    core_region=(z[1:-1]>=0) & (interior >= .99*max(reference_eps.real))
+    scores=[]
+    for candidate in valid:
+        vector=vectors[:,order[candidate]]
+        scores.append(float(np.sum(abs(vector[core_region])**2)/
+                            max(np.sum(abs(vector)**2),1e-30)))
+    selected=valid[int(np.argmax(scores))]
+    if max(scores) < .05:
+        raise ValueError("No device-layer-localized TE port mode was found; increase BOX thickness or the port-domain padding")
+    beta=float(np.sqrt(beta2[selected])); phi=np.zeros(z.size,dtype=complex)
+    phi[1:-1]=vectors[:,order[selected]]
     phi/=np.sqrt(np.trapezoid(abs(phi)**2,z))
     phase=phi[np.argmax(abs(phi))]
     phi*=np.exp(-1j*np.angle(phase))
@@ -171,6 +248,8 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
     model.validate(); x,z=_axes(model); dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
     eps,reference=_permittivity(model,x,z); k0=2*np.pi/model.wavelength_um
     beta,phi=_te_mode(reference,z,k0)
+    port_core_fraction=float(np.trapezoid(abs(phi[(z>=0)&(z<=model.waveguide_height_um)])**2,
+                                          z[(z>=0)&(z<=model.waveguide_height_um)]))
     sigma_x=_absorber_sigma(x,x[0],x[-1],model.absorber_um,model.absorber_strength)
     sigma_z=_absorber_sigma(z,z[0],z[-1],model.absorber_um,model.absorber_strength)
     sx=1+1j*sigma_x; sz=1+1j*sigma_z
@@ -193,21 +272,47 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
     top_j=min(z.size-3,int(round((z[-1]-model.absorber_um-3*dz-z[0])/dz)))
     bottom_j=max(2,int(round((z[0]+model.absorber_um+3*dz-z[0])/dz)))
     kx,kz,up,prop,up_power,dk=_angular_power(total,top_j,x,z,model.cladding_n,k0,True)
-    *_,down_power,_=_angular_power(total,bottom_j,x,z,model.substrate_n,k0,False)
+    lower_n = (model.handle_n if model.box_thickness_um is not None
+               and model.handle_n is not None else model.substrate_n)
+    *_,down_power,_=_angular_power(total,bottom_j,x,z,lower_n,k0,False)
     upward=up_power/incident_power; substrate=down_power/incident_power
     center=model.target_center_um if model.target_center_um is not None else model.periods*model.period_um/2
-    target=np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(1j*model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))*x)
+    target=np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(
+        1j*(model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))*x+
+            np.deg2rad(model.target_phase_deg)))
     target_spectrum=dx*np.fft.fftshift(np.fft.fft(np.fft.ifftshift(target)))
     target_norm=float(np.sum(kz[prop]*abs(target_spectrum[prop])**2)*dk/(2*np.pi))
     overlap=np.sum(kz[prop]*np.conj(target_spectrum[prop])*up[prop])*dk/(2*np.pi)
     target_eff=float(abs(overlap)**2/(target_norm*incident_power)) if target_norm else 0
     accounted=residual_guided+back_reflection+upward+substrate
     stride=max(1,int(max(x.size,z.size)/240))
-    intensity=abs(total[::stride,::stride])**2
-    intensity/=max(float(intensity.max()),1e-30)
-    return {"method":"2D scalar TE finite-difference frequency domain; reciprocal waveguide-mode launch",
+    sampled=total[::stride,::stride]
+    intensity=abs(sampled)**2; field_scale=max(float(np.sqrt(intensity.max())),1e-30)
+    intensity/=field_scale**2
+    d_ey_dx=np.gradient(total,dx,axis=0); d_ey_dz=np.gradient(total,dz,axis=1)
+    hx=1j*d_ey_dz/k0; hz=-1j*d_ey_dx/k0
+    sx_power=.5*np.real(total*np.conj(hz)); sz_power=-.5*np.real(total*np.conj(hx))
+    power_scale=max(float(np.max(np.sqrt(sx_power**2+sz_power**2))),1e-30)
+    sampled_eps=eps[::stride,::stride].real
+    stack = ({"type":"semi_infinite_substrate","substrate_n":model.substrate_n}
+             if model.box_thickness_um is None else
+             {"type":"finite_box_and_handle","box_n":model.substrate_n,
+              "box_thickness_um":model.box_thickness_um,"handle_n":model.handle_n})
+    return {"method":"2D scalar TE finite-difference frequency domain; guided-mode out-coupling solve",
         "model":asdict(model),"grid":{"nx":x.size,"nz":z.size,"cells":x.size*z.size,"dx_um":dx,"dz_um":dz},
-        "mode":{"n_eff":beta/k0,"beta_per_um":beta,"normalization":"integral |Ey|^2 dz = 1"},
+        "geometry":{"upper_cladding_n":model.cladding_n,"device_n":model.core_n,
+                    "lower_stack":stack,"rasterization":model.discretization,
+                    "subpixel_samples_per_axis":model.subpixel_samples if model.discretization=="cell_average" else 1},
+        "formulation":{"time_convention":"exp(-i omega t)",
+            "equation":"(d_x^2 + d_z^2 + k0^2 epsilon_r) Ey = b",
+            "interface_conditions":"Ey and its normal derivative are continuous for this scalar TE, non-magnetic model",
+            "magnetic_reconstruction":"Hx = i d_z(Ey)/k0; Hz = -i d_x(Ey)/k0 in relative units",
+            "source":"discrete line source calibrated by an unpatterned reference-waveguide solve",
+            "excitation":"waveguide_to_grating_to_target_mode"},
+        "mode":{"n_eff":beta/k0,"beta_per_um":beta,
+                "device_core_fraction":port_core_fraction,
+                "selection":"maximum electric-profile localization in the device layer above z=0",
+                "normalization":"integral |Ey|^2 dz = 1"},
         "efficiencies":{"target_free_space_mode":target_eff,"upward_radiation":upward,
             "substrate_radiation":substrate,"residual_forward_waveguide":residual_guided,
             "back_reflection":back_reflection,"accounted_power":accounted,
@@ -215,11 +320,19 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
             "insertion_loss_db":float(-10*np.log10(max(target_eff,1e-30))),
             "directionality":float(upward/max(upward+substrate,1e-30))},
         "field":{"x_um":x[::stride].tolist(),"z_um":z[::stride].tolist(),
-                 "normalized_Ey2":intensity.T.tolist()},
-        "reciprocity_statement":"For reciprocal isotropic materials, power emitted by the launched waveguide mode into the normalized target beam equals coupling from the time-reversed target beam into that waveguide mode.",
-        "scope":"Initial 2D TE finite-device solver. It includes finite length, partial etch, substrate leakage, back-reflection, absorbing boundaries, and output-mode normalization. It does not include finite lateral width or full-vector 3D polarization mixing.",
+                 "normalization":"Ey is divided by max|Ey|; relative Poynting components are divided by max sqrt(Sx^2+Sz^2)",
+                 "normalized_Ey2":intensity.T.tolist(),
+                 "normalized_Ey_real":(sampled.real/field_scale).T.tolist(),
+                 "normalized_Ey_imag":(sampled.imag/field_scale).T.tolist(),
+                 "Ey_phase_rad":np.angle(sampled).T.tolist(),
+                 "normalized_Sx":(sx_power[::stride,::stride]/power_scale).T.tolist(),
+                 "normalized_Sz":(sz_power[::stride,::stride]/power_scale).T.tolist(),
+                 "epsilon_r":sampled_eps.T.tolist()},
+        "reciprocity_statement":"This result is one genuine waveguide-source solve. For reciprocal isotropic materials it defines the corresponding reciprocal-port overlap, but it is not an independently solved fiber-incident field and is not used as a reciprocity-error test.",
+        "scope":"2D scalar TE finite-device out-coupling solver, invariant across width. It includes finite length, partial etch, optional finite BOX and handle, substrate leakage, back-reflection, absorbing boundaries, and target-mode overlap. It does not include finite lateral width, full-vector 3D polarization mixing, or a validated incoming-fiber source.",
         "references":[{"title":"Optical Waveguide Theory","authors":"Snyder and Love","applies_to":"mode normalization and reciprocity"},
           {"title":"Grating couplers for coupling between optical fibers and nanophotonic waveguides","doi":"10.1143/JJAP.45.6071"},
+          {"title":"Improving accuracy by subpixel smoothing in the finite-difference time domain","doi":"10.1364/OL.31.002972","applies_to":"interface-aware discretization context; this scalar implementation uses cell-averaged epsilon, not the paper's full tensor method"},
           {"title":"MEEP: A flexible free-software package for electromagnetic simulations by the FDTD method","doi":"10.1016/j.cpc.2009.11.008","applies_to":"finite-domain validation context"}]}
 
 
@@ -237,18 +350,26 @@ def validate_finite_grating(model: FiniteGratingModel) -> dict:
         "top_padding_um":model.top_padding_um*1.15,
         "substrate_depth_um":model.substrate_depth_um*1.15}))
     padding_changes={key:abs(padding["efficiencies"][key]-coarse["efficiencies"][key]) for key in keys}
+    alternate_discretization = "binary" if model.discretization == "cell_average" else "cell_average"
+    interface=solve_finite_grating(FiniteGratingModel(**{**asdict(model),
+        "discretization":alternate_discretization}))
+    interface_changes={key:abs(interface["efficiencies"][key]-coarse["efficiencies"][key]) for key in keys}
     power_residuals={name:abs(run["efficiencies"]["numerical_or_absorber_residual"])
                      for name,run in (("coarse",coarse),("refined",refined),
-                                      ("absorber",absorber),("padding",padding))}
-    maximum=max([*changes.values(),*absorber_changes.values(),*padding_changes.values()])
+                                      ("absorber",absorber),("padding",padding),
+                                      ("interface",interface))}
+    maximum=max([*changes.values(),*absorber_changes.values(),*padding_changes.values(),
+                 *interface_changes.values()])
     research=maximum <= 1e-2 and max(power_residuals.values()) <= 1e-2
     publication=maximum <= 2e-3 and max(power_residuals.values()) <= 2e-3
     return {"coarse":coarse,"refined":refined,"absorber_variant":absorber,
-            "padding_variant":padding,"changes":changes,
+            "padding_variant":padding,"interface_variant":interface,
+            "interface_variant_name":alternate_discretization,"changes":changes,
             "absorber_changes":absorber_changes,"padding_changes":padding_changes,
+            "interface_changes":interface_changes,
             "power_budget_residuals":power_residuals,"maximum_change":maximum,
             "passed_research":research,"passed_publication_screen":publication,
-            "interpretation":"The certificate varies mesh, absorber strength, and all domain paddings independently. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
+            "interpretation":"The certificate varies mesh, absorber strength, all domain paddings, and binary versus cell-averaged interface rasterization independently. Cell averaging is the scalar TE mass-term correction, not full-vector tensor smoothing. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
 
 
 def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
