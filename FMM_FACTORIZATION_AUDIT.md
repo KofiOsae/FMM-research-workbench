@@ -1,6 +1,6 @@
 # Fourier-factorization audit
 
-Audit date: 2026-10-09.
+Audit date: 2026-10-10.
 
 The periodic solver delegates patterned-layer Fourier algebra to the installed
 `grcwa` package. Inspection of `grcwa/fft_funs.py::Epsilon_fft` shows that it
@@ -12,6 +12,15 @@ This is useful inverse-rule behavior, but the inspected package does not expose
 an interface-normal vector field or a normal-vector factorization path. The
 Workbench therefore records the implementation as **epsilon convolution plus
 matrix inverse**, not as a complete Li normal-vector implementation.
+
+The solver now exports this classification with every scattering result and
+shows it in the single-wavelength quality panel. One-dimensional `stripe` and
+`slot` layers are identified separately because their interfaces are invariant
+along the second lattice coordinate and the classical direct/inverse rule pair
+is the relevant lamellar formulation. Crossed rectangles, disks, rings,
+ellipses, holes, and arbitrary masks are explicitly classified as
+**partial inverse rule without a normal-vector field**. This classification is
+metadata and a validation requirement; it does not alter the grcwa matrices.
 
 The relevant mathematical reference is L. Li, “Use of Fourier series in the
 analysis of discontinuous periodic structures,” *JOSA A* 13, 1870–1876 (1996),

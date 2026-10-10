@@ -147,6 +147,32 @@ def _grid(layer: Layer, model: StackModel) -> np.ndarray:
     return eps
 
 
+def _factorization_info(model: StackModel) -> dict:
+    """Describe the exact convolution/product rule used by the installed backend."""
+    patterned=[layer for layer in model.layers if layer.kind != "uniform"]
+    one_dimensional=bool(patterned) and all(layer.kind in ("stripe","slot") for layer in patterned)
+    if not patterned:
+        classification="uniform_no_fourier_factorization"
+        applicability="No discontinuous in-plane material product is present."
+    elif one_dimensional:
+        classification="classical_1d_epsilon_convolution_plus_inverse_rule"
+        applicability=("The lamellar interfaces are invariant along the second lattice direction. "
+                       "The backend epsilon convolution and inverse convolution operator provide the relevant classical direct/inverse rule pair.")
+    else:
+        classification="crossed_2d_partial_inverse_rule_without_normal_vector_field"
+        applicability=("The backend supplies epsilon convolution and the inverse of that convolution matrix, but no interface-normal vector field. "
+                       "This is not a complete Li normal-vector factorization for crossed 2D discontinuities.")
+    return {"classification":classification,
+        "epsilon_operator":"Toeplitz convolution matrix of sampled epsilon",
+        "inverse_operator":"matrix inverse of the epsilon convolution matrix",
+        "normal_vector_factorization":False,
+        "one_dimensional_lamellar_geometry":one_dimensional,
+        "applicability":applicability,
+        "required_validation":"Converge the declared observable with Fourier order and geometry grid independently; use stricter scrutiny for TM and crossed high-contrast patterns.",
+        "reference":{"title":"Use of Fourier series in the analysis of discontinuous periodic structures",
+                     "author":"L. Li","doi":"10.1364/JOSAA.13.001870"}}
+
+
 def prepare(model: StackModel):
     model.validate()
     grcwa.set_backend("numpy")
@@ -268,6 +294,7 @@ def solve_stack(model: StackModel) -> dict:
         lookup = [{(item["m"], item["n"]): item for item in part["orders"]} for part in parts]
         return {**{key: (parts[0][key]+parts[1][key])/2 for key in ("R", "T", "A", "R0", "T0")},
                 "actual_orders": parts[0]["actual_orders"],
+                "fourier_factorization":_factorization_info(model),
                 "orders": [{"m": m, "n": n,
                             "R": sum(d.get((m,n), {}).get("R",0) for d in lookup)/2,
                             "T": sum(d.get((m,n), {}).get("T",0) for d in lookup)/2}
@@ -296,6 +323,7 @@ def solve_stack(model: StackModel) -> dict:
         "orders": [{"m": int(m), "n": int(n), "R": float(rv), "T": float(tv)}
                    for (m,n),rv,tv in zip(obj.G,r,t) if rv > 1e-8 or tv > 1e-8],
         "order_amplitudes": amplitudes,
+        "fourier_factorization": _factorization_info(model),
     }
 
 

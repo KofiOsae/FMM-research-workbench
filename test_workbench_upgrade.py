@@ -11,7 +11,7 @@ import numpy as np
 import run_jobs
 import usage_stats
 from app import spectrum, _spectrum_diagnostics
-from stack import StackModel, Layer
+from stack import StackModel, Layer, solve_stack
 from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
 from bands import BandModel, full_zone_gaps
@@ -90,6 +90,18 @@ class UpgradeTests(unittest.TestCase):
         last=result['rows'][-1]
         self.assertAlmostEqual(sum(o['R'] for o in last['orders']),last['R'],places=10)
         self.assertAlmostEqual(sum(o['T'] for o in last['orders']),last['T'],places=10)
+
+    def test_fourier_factorization_scope_is_exported(self):
+        stripe=StackModel(order_budget=9,grid_size=24,layers=(Layer(
+            kind='stripe',thickness_um=.1,background_material='air',
+            feature_material='dielectric',feature_n=2),))
+        info=solve_stack(stripe)['fourier_factorization']
+        self.assertTrue(info['one_dimensional_lamellar_geometry'])
+        self.assertIn('inverse_rule',info['classification'])
+        crossed=replace(stripe,layers=(replace(stripe.layers[0],kind='rectangle'),))
+        crossed_info=solve_stack(crossed)['fourier_factorization']
+        self.assertFalse(crossed_info['normal_vector_factorization'])
+        self.assertIn('not a complete Li',crossed_info['applicability'])
 
     def test_finite_grating_has_two_independent_reciprocal_sources(self):
         model=FiniteGratingModel(mesh_um=.1,periods=4,left_padding_um=1,
