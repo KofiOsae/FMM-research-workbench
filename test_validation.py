@@ -153,6 +153,29 @@ class PhysicalValidation(unittest.TestCase):
         self.assertGreater(min(fractional),min(material_values))
         self.assertLess(max(fractional),max(material_values))
 
+    def test_finite_grating_per_tooth_apodization_changes_exact_raster(self):
+        model = FiniteGratingModel(periods=2, period_um=.5, fill_factor=.5,
+            tooth_periods_um=(.4,.6), tooth_fill_factors=(.25,.75),
+            mesh_um=.1, discretization="binary")
+        model.validate()
+        x=np.array([.05,.20,.70,.90]); z=np.array([.20])
+        eps,_=_permittivity(model,x,z)
+        self.assertTrue(np.allclose(eps[:,0].real,
+            [model.core_n**2,model.cladding_n**2,
+             model.core_n**2,model.cladding_n**2]))
+        axis,_=_axes(model)
+        self.assertGreaterEqual(axis[-1],1.0+model.right_padding_um)
+        with self.assertRaisesRegex(ValueError,"exactly the declared"):
+            FiniteGratingModel(periods=2,tooth_periods_um=(.5,),
+                tooth_fill_factors=(.5,)).validate()
+        with self.assertRaisesRegex(ValueError,"both the per-tooth"):
+            FiniteGratingModel(periods=2,tooth_periods_um=(.5,.5)).validate()
+
+    def test_published_terminal_trench_is_representable(self):
+        model=FiniteGratingModel(periods=2,tooth_periods_um=(.6,.311),
+            tooth_fill_factors=(.9,0.0))
+        model.validate()
+
     def test_finite_grating_exports_complex_phase_flux_and_raster(self):
         result=solve_finite_grating(FiniteGratingModel(periods=2,mesh_um=.08,
             left_padding_um=1,right_padding_um=1,top_padding_um=1,

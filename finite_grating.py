@@ -38,6 +38,8 @@ class FiniteGratingModel:
     period_um: float = .63
     fill_factor: float = .50
     periods: int = 8
+    tooth_periods_um: tuple[float, ...] = ()
+    tooth_fill_factors: tuple[float, ...] = ()
     left_padding_um: float = 1.5
     right_padding_um: float = 2.0
     top_padding_um: float = 1.5
@@ -64,6 +66,17 @@ class FiniteGratingModel:
             raise ValueError("The silicon-handle refractive index must be positive")
         if not 1 <= self.periods <= 80 or not 0 < self.fill_factor < 1:
             raise ValueError("Use 1–80 periods and a fill factor strictly between zero and one")
+        tooth_periods = tuple(self.tooth_periods_um or ())
+        tooth_fills = tuple(self.tooth_fill_factors or ())
+        if bool(tooth_periods) != bool(tooth_fills):
+            raise ValueError("Imported apodization requires both the per-tooth period and fill-factor lists")
+        if tooth_periods:
+            if len(tooth_periods) != self.periods or len(tooth_fills) != self.periods:
+                raise ValueError("Per-tooth period and fill-factor lists must each contain exactly the declared number of periods")
+            if not np.isfinite([*tooth_periods, *tooth_fills]).all():
+                raise ValueError("Per-tooth period and fill-factor values must be finite")
+            if min(tooth_periods) <= 0 or min(tooth_fills) < 0 or max(tooth_fills) > 1:
+                raise ValueError("Every per-tooth period must be positive and every fill factor must lie from zero through one")
         if not 0 < self.etch_depth_um <= self.waveguide_height_um:
             raise ValueError("Etch depth must be positive and no larger than the waveguide height")
         if not .005 <= self.mesh_um <= .15:
@@ -93,6 +106,22 @@ class FiniteGratingModel:
             raise ValueError("Excitation must be 'waveguide' or 'fiber'")
 
 
+def _tooth_geometry(model: FiniteGratingModel):
+    """Return exact period/fill arrays and cumulative tooth boundaries."""
+    if model.tooth_periods_um:
+        periods = np.asarray(model.tooth_periods_um, dtype=float)
+        fills = np.asarray(model.tooth_fill_factors, dtype=float)
+    else:
+        periods = np.full(model.periods, model.period_um, dtype=float)
+        fills = np.full(model.periods, model.fill_factor, dtype=float)
+    boundaries = np.concatenate(([0.0], np.cumsum(periods)))
+    return periods, fills, boundaries
+
+
+def _grating_length(model: FiniteGratingModel) -> float:
+    return float(_tooth_geometry(model)[2][-1])
+
+
 def finite_grid_limit() -> int:
     """Return the configured hard cell limit for this service instance."""
     public = os.environ.get("PUBLIC_DEMO") == "1"
@@ -105,7 +134,7 @@ def finite_grid_limit() -> int:
 
 
 def _axes(model: FiniteGratingModel):
-    length = model.periods*model.period_um
+    length = _grating_length(model)
     x = np.arange(-model.left_padding_um, length+model.right_padding_um+model.mesh_um/2,
                   model.mesh_um)
     z = np.arange(-model.substrate_depth_um,
@@ -135,10 +164,13 @@ def _point_permittivity(model: FiniteGratingModel, x, z, patterned=True):
     core = (Z >= 0) & (Z <= model.waveguide_height_um)
     eps[core] = model.core_n**2
     if patterned:
-        length = model.periods*model.period_um
-        phase = np.mod(X, model.period_um)/model.period_um
-        grooves = ((X >= 0) & (X < length) &
-                   (phase >= model.fill_factor))
+        periods, fills, boundaries = _tooth_geometry(model)
+        length = float(boundaries[-1])
+        inside = (X >= 0) & (X < length)
+        tooth = np.clip(np.searchsorted(boundaries, X, side="right")-1,
+                        0, model.periods-1)
+        local = X-boundaries[tooth]
+        grooves = inside & (local >= fills[tooth]*periods[tooth])
         etched = ((Z > model.waveguide_height_um-model.etch_depth_um) &
                   (Z <= model.waveguide_height_um))
         eps[grooves & etched] = model.cladding_n**2
@@ -176,24 +208,34 @@ def _permittivity(model: FiniteGratingModel, x, z):
 def _raster_geometry_metrics(model, x, z, eps, reference):
     """Compare declared tooth geometry with the dielectric raster actually solved."""
     dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
-    length=model.periods*model.period_um
+    periods,fills,boundaries=_tooth_geometry(model)
+    length=float(boundaries[-1])
     patterned=(x[:,None]>=0)&(x[:,None]<=length)
     removed_fraction=np.clip((reference[None,:].real-eps.real)/
         max(model.core_n**2-model.cladding_n**2,1e-30),0,1)
     removed=np.where(patterned,removed_fraction,0)
     removed_area=float(np.trapezoid(np.trapezoid(removed,z,axis=1),x)/max(model.periods,1))
-    nominal_area=(1-model.fill_factor)*model.period_um*model.etch_depth_um
-    effective_fill=float(1-removed_area/max(model.period_um*model.etch_depth_um,1e-30))
+    nominal_total=float(np.sum((1-fills)*periods)*model.etch_depth_um)
+    nominal_area=nominal_total/model.periods
+    mean_period=float(np.mean(periods))
+    effective_fill=float(1-removed_area/max(mean_period*model.etch_depth_um,1e-30))
     nearest=lambda values,target: float(values[np.argmin(abs(values-target))])
-    return {"nominal_period_um":float(model.period_um),
-        "nominal_tooth_width_um":float(model.fill_factor*model.period_um),
-        "nominal_fill_factor":float(model.fill_factor),
+    tooth_edges=boundaries[:-1]+fills*periods
+    all_edges=np.concatenate((boundaries,tooth_edges))
+    maximum_edge_error=float(max(abs(nearest(x,edge)-edge) for edge in all_edges))
+    return {"geometry_mode":"per_tooth_apodized" if model.tooth_periods_um else "uniform",
+        "nominal_period_um":mean_period,
+        "nominal_tooth_width_um":float(np.mean(fills*periods)),
+        "nominal_fill_factor":float(np.sum(fills*periods)/max(np.sum(periods),1e-30)),
+        "tooth_periods_um":periods.tolist(),"tooth_fill_factors":fills.tolist(),
+        "grating_length_um":length,
         "nominal_etch_depth_um":float(model.etch_depth_um),
         "nominal_removed_area_um2_per_period":float(nominal_area),
         "raster_effective_fill_in_etched_band":effective_fill,
         "raster_removed_area_um2_per_period":removed_area,
         "removed_area_relative_error":float((removed_area-nominal_area)/max(nominal_area,1e-30)),
-        "nearest_grid_tooth_edge_um":nearest(x,model.fill_factor*model.period_um),
+        "nearest_grid_tooth_edge_um":nearest(x,float(tooth_edges[0])),
+        "maximum_tooth_boundary_grid_error_um":maximum_edge_error,
         "nearest_grid_etch_floor_um":nearest(z,model.waveguide_height_um-model.etch_depth_um),
         "definition":"Raster metrics are computed from the exact epsilon array passed to the operator. Cell-averaged epsilon gives fractional silicon occupancy; binary nodes give zero/one occupancy."}
 
@@ -341,7 +383,7 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
                and model.handle_n is not None else model.substrate_n)
     *_,down_power,_=_angular_power(total,bottom_j,x,z,lower_n,k0,False)
     upward=up_power/incident_power; substrate=down_power/incident_power
-    center=model.target_center_um if model.target_center_um is not None else model.periods*model.period_um/2
+    center=model.target_center_um if model.target_center_um is not None else _grating_length(model)/2
     target=np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(
         1j*(model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))*x+
             np.deg2rad(model.target_phase_deg)))
@@ -414,7 +456,7 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
                                 {"axis":"z","position_um":float(z[bottom_j]),"label":"lower angular monitor"}],
                     "absorber_um":float(model.absorber_um)}},
         "reciprocity_statement":"This single result is one genuine waveguide-source solve, not an independently solved reciprocal field. Run the bidirectional reciprocity certificate for the independent Gaussian-source comparison.",
-        "scope":"2D scalar TE finite-device coupling solver, invariant across width. It supports independent guided-mode and Gaussian angular-spectrum sources, finite length, partial etch, optional finite BOX and handle, guided-mode projection, radiation channels and complex fields. It does not represent finite lateral width, a true 3D fiber mode, full-vector polarization mixing, per-tooth apodization, or multiple guided modes.",
+        "scope":"2D scalar TE finite-device coupling solver, invariant across width. It supports independent guided-mode and Gaussian angular-spectrum sources, finite length, partial etch, optional per-tooth period/fill apodization, finite BOX and handle, guided-mode projection, radiation channels and complex fields. It does not represent finite lateral width, a true 3D fiber mode, full-vector polarization mixing, or multiple guided modes.",
         "references":[{"title":"Optical Waveguide Theory","authors":"Snyder and Love","applies_to":"mode normalization and reciprocity"},
           {"title":"Grating couplers for coupling between optical fibers and nanophotonic waveguides","doi":"10.1143/JJAP.45.6071"},
           {"title":"Improving accuracy by subpixel smoothing in the finite-difference time domain","doi":"10.1364/OL.31.002972","applies_to":"interface-aware discretization context; this scalar implementation uses cell-averaged epsilon, not the paper's full tensor method"},
@@ -480,6 +522,7 @@ def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
         raise ValueError("The analytic slab control found no bound TE mode")
     uniform = solve_finite_grating(FiniteGratingModel(**{
         **asdict(model), "excitation": "waveguide", "fill_factor": .999999,
+        "tooth_periods_um": (), "tooth_fill_factors": (),
         "target_center_um": None}))
     numerical_neff = float(uniform["mode"]["n_eff"])
     analytic_neff = float(analytic["modes"][0]["n_eff"])
@@ -506,7 +549,8 @@ def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
 
 
 _DESIGN_PARAMETERS = {name for name in FiniteGratingModel.__dataclass_fields__
-                      if name not in {"target_center_um","excitation"}}
+                      if name not in {"target_center_um","excitation",
+                                      "tooth_periods_um","tooth_fill_factors"}}
 def _with(model: FiniteGratingModel, parameter: str, value: float) -> FiniteGratingModel:
     if parameter not in _DESIGN_PARAMETERS:
         raise ValueError(f"Unsupported finite-device parameter {parameter}")

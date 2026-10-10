@@ -1,0 +1,62 @@
+{
+  "kind": "finite_grating_literature_scope_case",
+  "title": "Marchetti et al. 2017 apodized 260 nm SOI grating",
+  "reference": {
+    "citation": "R. Marchetti et al., Scientific Reports 7, 16670 (2017)",
+    "doi": "10.1038/s41598-017-16505-z",
+    "reported_model": "full-vector 2D FDTD with conformal mesh",
+    "reported_peak_coupling_efficiency": 0.83,
+    "reported_peak_insertion_loss_db": 0.8,
+    "reported_simulated_1db_bandwidth_um": 0.0328,
+    "reported_best_measured_efficiency": 0.81,
+    "reported_directionality": 0.85,
+    "reported_minimum_mesh_um": 0.012,
+    "reported_wavelength_samples": 500,
+    "reported_wavelength_range_um": [1.425, 1.675]
+  },
+  "model": {
+    "excitation": "waveguide",
+    "wavelength_um": 1.55,
+    "core_n": 3.48,
+    "substrate_n": 1.44,
+    "cladding_n": 1.44,
+    "box_thickness_um": 2.0,
+    "handle_n": 3.48,
+    "waveguide_height_um": 0.26,
+    "etch_depth_um": 0.16,
+    "period_um": 0.63,
+    "fill_factor": 0.7,
+    "periods": 24,
+    "tooth_periods_um": [0.6, 0.602, 0.605, 0.608, 0.611, 0.614, 0.616, 0.619, 0.622, 0.625, 0.628, 0.631, 0.634, 0.637, 0.641, 0.644, 0.647, 0.65, 0.654, 0.657, 0.66, 0.664, 0.667, 0.311],
+    "tooth_fill_factors": [0.9, 0.88538206, 0.869421488, 0.855263158, 0.839607201, 0.824104235, 0.808441558, 0.793214863, 0.778135048, 0.7632, 0.746815287, 0.730586371, 0.716088328, 0.700156986, 0.683307332, 0.667701863, 0.652241113, 0.635384615, 0.619266055, 0.602739726, 0.586363636, 0.569277108, 0.553223388, 0.0],
+    "left_padding_um": 1.5,
+    "right_padding_um": 2.0,
+    "top_padding_um": 1.5,
+    "substrate_depth_um": 3.0,
+    "mesh_um": 0.08,
+    "absorber_um": 0.5,
+    "absorber_strength": 3.0,
+    "discretization": "cell_average",
+    "subpixel_samples": 5,
+    "target_angle_deg": 10.0,
+    "target_waist_um": 5.4,
+    "target_center_um": null,
+    "target_phase_deg": 0.0
+  },
+  "geometry_provenance": {
+    "trench_widths_nm": [60, 69, 79, 88, 98, 108, 118, 128, 138, 148, 159, 170, 180, 191, 203, 214, 225, 237, 249, 261, 273, 286, 298, 311],
+    "tooth_widths_nm": [540, 533, 526, 520, 513, 506, 498, 491, 484, 477, 469, 461, 454, 446, 438, 430, 422, 413, 405, 396, 387, 378, 369, 0],
+    "total_length_um": 14.847,
+    "top_oxide_thickness_um": 0.68,
+    "fiber_tilt_in_air_deg": 14.5,
+    "beam_angle_in_top_oxide_deg": 10.0,
+    "beam_mfd_in_top_oxide_um": 10.8
+  },
+  "comparison_status": "scope_case_not_quantitative_benchmark",
+  "unmatched_physics": [
+    "The Workbench scalar TE operator is not the paper's full-vector 2D FDTD formulation.",
+    "The Workbench currently treats the upper cladding as semi-infinite SiO2 and does not model the paper's finite 0.68 µm top oxide followed by air.",
+    "The 2D sheet-beam overlap is per invariant width and is not the paper's finite 12 µm-wide 3D fiber overlap.",
+    "The 0.08 µm exploratory mesh is much coarser than the paper's reported 0.012 µm minimum conformal mesh."
+  ]
+}

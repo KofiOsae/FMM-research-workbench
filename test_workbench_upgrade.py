@@ -208,7 +208,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'bidirectional-grating-2026-10-10')
+                self.assertEqual(health['version'],'apodized-grating-2026-10-10')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
@@ -269,6 +269,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'fgFieldQuantity',script)
                 self.assertIn(b'fgGridEstimate',script)
                 self.assertIn(b'updateFiniteGridEstimate',script)
+                self.assertIn(b'fgToothPeriods',script)
+                self.assertIn(b'Load published 2017 tooth table',script)
                 self.assertIn(b'normalized_Ey_real',script)
                 self.assertIn(b'Usage statistics',script)
                 self.assertIn(b'Anonymous browsers',script)
@@ -299,6 +301,14 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'Calculate grating coupling in both reciprocal directions',guide)
                 self.assertIn(b'Research map for each capability',guide)
                 self.assertIn(b'Marchetti et al.',guide)
+                self.assertIn(b'Load published 2017 tooth table',guide)
+            with urlopen(base+'/examples/marchetti_2017_apodized_scope_case.json') as response:
+                case=json.loads(response.read())
+                self.assertEqual(case['comparison_status'],
+                                 'scope_case_not_quantitative_benchmark')
+                self.assertEqual(len(case['model']['tooth_periods_um']),24)
+                self.assertAlmostEqual(sum(case['model']['tooth_periods_um']),14.847)
+                self.assertEqual(case['model']['tooth_fill_factors'][-1],0)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b'Tilt \xe2\x86\x91',page)

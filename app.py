@@ -95,6 +95,8 @@ def method_provenance(operation: str) -> dict:
                                 "applies_to":"mode orthogonality, excitation, and reciprocity projection"}],
         "finite_grating_coupler": [{"id":"taillaert-2006", "title":"Grating couplers for coupling between optical fibers and nanophotonic waveguides",
                                      "doi":"10.1143/JJAP.45.6071", "applies_to":"finite grating-coupler device physics"},
+                                    {"id":"marchetti-2017", "title":"High-efficiency grating-couplers: demonstration of a new design strategy",
+                                     "doi":"10.1038/s41598-017-16505-z", "applies_to":"published per-tooth apodized geometry and literature scope comparison"},
                                     {"id":"snyder-love-1983", "title":"Optical Waveguide Theory",
                                      "applies_to":"guided-mode normalization and reciprocity"},
                                     {"id":"oskooi-2010", "title":"MEEP: A flexible free-software package for electromagnetic simulations by the FDTD method",
@@ -322,6 +324,9 @@ class Handler(BaseHTTPRequestHandler):
                            '/METASURFACE_GUIDE.html'):
             mime = 'text/javascript' if self.path.endswith('.js') else 'text/css' if self.path.endswith('.css') else 'text/html'
             self._send((ROOT/self.path[1:]).read_bytes(), mime+'; charset=utf-8')
+        elif self.path == '/examples/marchetti_2017_apodized_scope_case.json':
+            self._send((ROOT/'examples'/'marchetti_2017_apodized_scope_case.json').read_bytes(),
+                       'application/json; charset=utf-8')
         elif self.path.startswith('/api/jobs/'):
             value = run_jobs.snapshot(self.path.split('/')[-1])
             self._send(json.dumps(value or {'error':'Job expired or unknown'}).encode(), 'application/json', 200 if value else 404)
@@ -331,7 +336,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
-                'version':'bidirectional-grating-2026-10-10',
+                'version':'apodized-grating-2026-10-10',
                 'public_demo': PUBLIC_DEMO,
                 'limits': {'finite_grid_cells': finite_grid_limit()},
                 'queue': run_jobs.status_summary()}).encode(), "application/json")

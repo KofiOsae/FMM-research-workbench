@@ -244,12 +244,20 @@ and fabrication measurements. They report 83% simulated peak coupling, 81%
 best measured coupling, and a simulated 1 dB bandwidth of 32.8 nm.
 
 Those headline values are **not** a numeric acceptance target for the current
-uniform-grating scalar model. The paper is used to verify
-definitions, output accounting, spectrum/bandwidth procedure, constrained
-design sequence, and tolerance reporting. A direct quantitative reproduction
-still requires its per-tooth apodization and a matched full-vector calculation;
-the Workbench now represents the finite oxide and silicon handle. It labels this
-boundary rather than silently comparing unlike geometries.
+scalar model. The **Load published 2017 tooth table** action imports all 24
+published trench/tooth pairs, including the terminal trench, and sets the
+reported 260 nm silicon layer, 160 nm etch, 2 µm BOX, 10° angle in top oxide,
+and 5.4 µm 1/e field radius. The exact source data and scope notes are also in
+`examples/marchetti_2017_apodized_scope_case.json`.
+
+This is a geometry and workflow comparison. The paper used full-vector 2D FDTD,
+a finite 680 nm top oxide followed by air, a 12 nm minimum conformal mesh, and a
+finite 12 µm device width for the experimental fiber overlap. The Workbench
+uses a scalar invariant-width operator and currently represents the top oxide
+as a semi-infinite upper cladding. A direct numeric comparison with 83% would
+therefore compare different electromagnetic models. Use the imported case to
+verify geometry ingestion, raster error, power accounting, convergence sequence,
+and trends; use a matched full-vector solver for quantitative reproduction.
 
 ## 9. Literature basis
 

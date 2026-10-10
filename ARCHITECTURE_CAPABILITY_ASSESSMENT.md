@@ -32,7 +32,7 @@ public container has lower safe memory limits than a research workstation.
 | Planar guided modes | `waveguide.py`, `multilayer_modes.py` | Analytic asymmetric-slab roots and numerical multilayer modes | Bound 1D modes; no finite device propagation |
 | Vector cross-section modes | `vector_modes.py` | Six-component fields, mode metrics, mesh/domain comparison | Isotropic built-in cores; no general imported raster or open-vector port |
 | Uniform-port projection | `mode_coupling.py` | Reciprocity overlap, forward/backward mode amplitudes, source screens | One uniform plane; it is not grating coupling |
-| Finite grating device | `finite_grating.py` | Normalized 2D TE port launch, finite radiation, Gaussian overlap, closed budget, spectrum/design/tolerance/validation | Scalar, lossless, uniform grating with one substrate and no finite lateral width |
+| Finite grating device | `finite_grating.py` | Normalized 2D TE port launch, finite radiation, Gaussian overlap, imported per-tooth period/fill apodization, closed budget, spectrum/design/tolerance/validation | Scalar, lossless, semi-infinite upper cladding and no finite lateral width |
 | Bands | `bands.py` | TE/TM eigenfrequencies, path fields, full sampled reciprocal-cell gap screen | Closed, lossless 2D crystal; no finite-crystal transmission link yet |
 | Resonance analysis | `resonance.py`, `multi_resonance.py`, `resonance_fields.py` | Adaptive driven-spectrum fits, field evidence, branch assignment | Phenomenological driven response; not a patterned pole or QNM solver |
 | Optimization | `optimization.py`, `observables.py`, `research_validation.py` | Named observables, explicit constraints, robust samples, final Trust checks | Derivative-free bounded search; no adjoint/topology engine |
@@ -127,11 +127,11 @@ eigensolver and a full-vector finite-domain propagator. It must preserve complex
 E/H fields, port normal, propagation direction, normalization power, mode ID,
 and mesh interpolation error.
 
-The validated silicon example currently covers a uniform scalar 2D TE device.
-A quantitative reproduction of the 260 nm SOI result from Marchetti et al.
-(2017) additionally requires per-tooth period/fill apodization, finite oxide,
-silicon handle, and matched full-vector physics. The reported 83% value must not
-be used as an acceptance target for a different geometry.
+The Workbench includes the 24-element period/fill table from Marchetti et al.
+(2017), a finite BOX and silicon handle as a literature scope case. A quantitative
+reproduction still requires the paper's finite top oxide/air interface, conformal
+12 nm minimum mesh, finite-width overlap, and matched full-vector physics. The
+reported 83% value must not be used as an acceptance target for the scalar model.
 
 ### Band eigenproblem → finite crystal
 
@@ -180,8 +180,8 @@ Deliverables:
 - Contextual definitions and valid ranges for every parameter.
 - Result interpretation panel with energy accounting, good/review/fail gates,
   dominant loss channel, and specific design actions.
-- Per-tooth uniform, linear-apodized, and imported grating tables; finite oxide
-  and substrate layers.
+- Per-tooth uniform and imported apodized grating tables; finite BOX and
+  substrate layers. A finite top-cladding layer remains a separate milestone.
 - Shared normalized TE/TM vector-port data model, then full-vector propagation
   as a separate reviewed milestone.
 - A matched literature case and independent solver comparison.

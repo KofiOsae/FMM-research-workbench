@@ -20,8 +20,9 @@ def _complex_value(value: complex) -> dict:
 
 
 def _target_line(model, x, k0):
+    from finite_grating import _grating_length
     center = (model.target_center_um if model.target_center_um is not None
-              else model.periods*model.period_um/2)
+              else _grating_length(model)/2)
     kx0 = model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))
     outgoing = np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(
         1j*(kx0*(x-center)+np.deg2rad(model.target_phase_deg)))
