@@ -118,8 +118,11 @@ satisfy
 The interface reports target-mode efficiency, insertion loss, upward and
 substrate radiation, residual forward guided power, back-reflection,
 directionality, accounted power, and numerical/absorber residual. Its
-validation command independently changes mesh spacing, absorber strength, and
-all domain paddings, and interface rasterization. Its Trust table records the
+validation command independently changes mesh spacing, absorber strength,
+all domain paddings, interface rasterization, and the Gaussian
+equivalent-current plane. The declared beam center belongs to its reference
+height; the propagating angular spectrum transports that field to the
+nonabsorbing upper monitor. Its Trust table records the
 declared tooth width, etch depth and removed area alongside the effective fill,
 removed area, and nearest grid interfaces actually passed to the operator. This
 separates a geometry-raster change from electromagnetic convergence. The selectable cell-averaged
@@ -127,7 +130,7 @@ epsilon corrects the scalar TE mass coefficient; it is not the anisotropic
 subpixel tensor of a full-vector Maxwell discretization. Complex Ey, its phase,
 relative reconstructed Poynting components, and the epsilon raster are exported.
 A publication claim also requires wavelength sampling,
-monitor-position checks, and comparison with an independent solver or
+monitor-position checks, source-plane stability, and comparison with an independent solver or
 published benchmark.
 
 This initial solver is restricted to reciprocal, isotropic, lossless 2D TE
@@ -152,7 +155,9 @@ every result export.
    \(\Lambda\approx\lambda_0/(n_\mathrm{eff}-n_c\sin\theta)\), then enter the
    actual finite period, fill factor, etch depth and number of teeth.
 4. Define the outgoing Gaussian by its 1/e electric-field waist, center,
-   signed global angle and reference phase.
+   signed global angle, reference phase and optional reference height. The
+   source-to-monitor separation is a numerical input for the reverse solve,
+   rather than a physical fiber distance.
 5. Run the baseline controls. The analytic slab and nearly uniform guide are
    implementation controls; neither validates the patterned coupler.
 6. Calculate the device. Inspect total complex field, phase and Poynting flow.
@@ -160,8 +165,10 @@ every result export.
    guided reflection and the power residual.
 7. Run spectrum, bounded optimization and fabrication tolerance. Treat the
    power residual, directionality and reflection as constraints.
-8. Run Trust validation and the bidirectional reciprocity certificate. Export
-   inputs, software settings, both complex coefficients and every certificate.
+8. Run Trust validation and the bidirectional reciprocity certificate. The
+   Trust report must show every angular monitor outside the absorber and a
+   stable result when the Gaussian source plane moves. Export inputs, software
+   settings, both complex coefficients and every certificate.
 
 ### Tutorial B — Gaussian port → grating → waveguide
 

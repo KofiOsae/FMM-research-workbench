@@ -61,7 +61,8 @@ def solve_fiber_incident(model):
     """
     from finite_grating import (_axes, _permittivity, _absorber_sigma,
         _operator, _te_mode, _mode_amplitudes, _angular_power,
-        _angular_spectrum_rows, _raster_geometry_metrics)
+        _angular_spectrum_rows, _raster_geometry_metrics, _top_monitor_index,
+        _target_spectrum_at_plane, _lateral_port_window)
 
     model.validate(); x,z=_axes(model); dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
     eps,reference=_permittivity(model,x,z); k0=2*np.pi/model.wavelength_um
@@ -76,18 +77,21 @@ def solve_fiber_incident(model):
     left_i=max(2,int(round(model.absorber_um/dx))+3)
     source_i=min(x.size-4,int(round((x[-1]-model.absorber_um-2*dx-x[0])/dx)))
     right_i=max(left_i+3,source_i-4)
-    top_j=min(z.size-5,int(round((z[-1]-model.absorber_um-5*dz-z[0])/dz)))
+    top_j=_top_monitor_index(model,z)
     bottom_j=max(2,int(round(model.absorber_um/dz))+3)
 
-    _,_,outgoing=_target_line(model,x,k0)
+    center,reference_z,kx,kz,prop,outgoing_spectrum,outgoing=_target_spectrum_at_plane(
+        model,x,k0,float(z[top_j]))
     # Lorentz-reciprocal incoming port: complex conjugate of the outgoing
     # transverse field and negative longitudinal wavevector.
     line=np.conj(outgoing)
     spectrum=dx*np.fft.fftshift(np.fft.fft(np.fft.ifftshift(line)))
-    kx=2*np.pi*np.fft.fftshift(np.fft.fftfreq(x.size,d=dx))
-    kz2=(model.cladding_n*k0)**2-kx**2; prop=kz2>0
-    kz=np.sqrt(np.maximum(kz2,0)); spectrum[~prop]=0
-    injection_j=min(z.size-3,top_j+3); z_ref=z[top_j]
+    spectrum[~prop]=0
+    source_cells=max(1,int(round(model.gaussian_source_offset_um/dz)))
+    absorber_start=int(np.searchsorted(z,z[-1]-model.absorber_um,side="left"))
+    injection_j=min(absorber_start-2,top_j+source_cells); z_ref=z[top_j]
+    if injection_j <= top_j:
+        raise ValueError("Gaussian source plane does not fit above the upper monitor; increase top padding or reduce source-plane separation")
     desired=np.zeros(eps.shape,complex)
     for j in range(1,injection_j+1):
         propagated=spectrum*np.exp(-1j*kz*(z[j]-z_ref))
@@ -96,12 +100,13 @@ def solve_fiber_incident(model):
     # Truncate only inside the absorbing rim.  Applying the discrete
     # background operator produces the equivalent current, including the
     # electric/magnetic Huygens-sheet pair implicit in the stencil.
-    wx=np.ones(x.size); wz=np.ones(z.size)
-    ex=max(2,int(np.ceil(model.absorber_um/dx)))
+    # Use the identical lateral port aperture as the forward Gaussian
+    # projection.  A different synthesis window would define a different
+    # reciprocal port and can create a false reciprocity mismatch.
+    wx=_lateral_port_window(model,x,include_measurement_taper=True); wz=np.ones(z.size)
     ez=max(2,int(np.ceil(model.absorber_um/dz)))
-    rx=np.sin(np.linspace(0,np.pi/2,ex))**2
     rz=np.sin(np.linspace(0,np.pi/2,ez))**2
-    wx[:ex]=rx; wx[-ex:]=rx[::-1]; wz[:ez]=rz; wz[-ez:]=rz[::-1]
+    wz[:ez]=rz; wz[-ez:]=rz[::-1]
     desired*=wx[:,None]*wz[None,:]
     desired[[0,-1],:]=0; desired[:,[0,-1]]=0
     rhs=background_op@desired.ravel()
@@ -164,7 +169,10 @@ def solve_fiber_incident(model):
           "requested_outgoing_angle_deg":float(model.target_angle_deg),
           "reciprocal_incoming_global_angle_deg":float(-model.target_angle_deg),
           "sampled_incoming_global_angle_deg":actual_angle,
+          "target_center_um":float(center),"target_reference_z_um":float(reference_z),
           "injection_z_um":float(z[injection_j]),"monitor_z_um":float(z[top_j]),
+          "source_monitor_separation_um":float(z[injection_j]-z[top_j]),
+          "monitor_inside_absorber":bool(z[top_j] > z[-1]-model.absorber_um),
           "reference_reproduction_relative_error":float(np.linalg.norm(incident-desired)/max(np.linalg.norm(desired),1e-30))},
       "mode":{"n_eff":beta/k0,"beta_per_um":beta,
           "device_core_fraction":float(np.trapezoid(abs(phi[core])**2,z[core])),

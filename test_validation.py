@@ -47,7 +47,8 @@ from observables import (evaluate_observable, evaluate_named_observables,
 from research_validation import (diffraction_order_map, linked_observable_sweep,
                                  settings_fingerprint, validation_report)
 from finite_grating import (FiniteGratingModel, solve_finite_grating,
-                            benchmark_finite_grating, finite_grating_spectrum,
+                            benchmark_finite_grating, validate_finite_grating,
+                            finite_grating_spectrum,
                             finite_grating_sweep, finite_grating_tolerance,
                             optimize_finite_grating, _permittivity, _axes)
 import materials
@@ -116,6 +117,33 @@ class PhysicalValidation(unittest.TestCase):
         self.assertGreater(power["residual_forward_waveguide"], .97)
         self.assertLess(abs(power["numerical_or_absorber_residual"]), .03)
         self.assertLess(power["target_free_space_mode"], power["upward_radiation"]+1e-12)
+
+    def test_finite_grating_source_plane_and_monitors_are_explicit(self):
+        model = FiniteGratingModel(excitation="fiber", periods=2, mesh_um=.1,
+            left_padding_um=1, right_padding_um=1, top_padding_um=1.2,
+            substrate_depth_um=1.2, absorber_um=.3, target_waist_um=1,
+            target_reference_z_um=.8, gaussian_source_offset_um=.2)
+        result = solve_finite_grating(model)
+        formulation = result["formulation"]
+        self.assertAlmostEqual(formulation["target_reference_z_um"], .8)
+        self.assertGreater(formulation["source_monitor_separation_um"], 0)
+        self.assertFalse(formulation["monitor_inside_absorber"])
+
+    def test_finite_grating_trust_varies_gaussian_source_plane(self):
+        model = FiniteGratingModel(periods=2, mesh_um=.1,
+            left_padding_um=1, right_padding_um=1, top_padding_um=1.2,
+            substrate_depth_um=1.2, absorber_um=.3, target_waist_um=1)
+        report = validate_finite_grating(model)
+        self.assertIn("selected_mode_coupling", report["source_plane_changes"])
+        self.assertNotEqual(report["source_plane_offsets_um"]["base"],
+                            report["source_plane_offsets_um"]["variant"])
+        self.assertTrue(all(report["monitor_position_checks"].values()))
+        expected = max([*report["changes"].values(),
+                        *report["absorber_changes"].values(),
+                        *report["padding_changes"].values(),
+                        *report["interface_changes"].values(),
+                        *report["source_plane_changes"].values()])
+        self.assertAlmostEqual(report["maximum_change"], expected)
 
     def test_finite_grating_reports_closed_device_channels(self):
         result = solve_finite_grating(FiniteGratingModel(periods=4, mesh_um=.08,

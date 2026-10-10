@@ -177,6 +177,8 @@ Deliverables:
 
 - Illustrated geometry with coordinate system, tooth/trench definition,
   material regions, port, radiation monitors, Gaussian target, angle and waist.
+- Explicit Gaussian beam center/reference height, source-to-monitor separation,
+  nonabsorbing monitor placement, and source-plane sensitivity in Trust validation.
 - Contextual definitions and valid ranges for every parameter.
 - Result interpretation panel with energy accounting, good/review/fail gates,
   dominant loss channel, and specific design actions.

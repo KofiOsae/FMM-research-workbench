@@ -52,7 +52,9 @@ class FiniteGratingModel:
     target_angle_deg: float = -30.0
     target_waist_um: float = 3.0
     target_center_um: float | None = None
+    target_reference_z_um: float | None = None
     target_phase_deg: float = 0.0
+    gaussian_source_offset_um: float = .15
 
     def validate(self) -> None:
         values = [v for v in asdict(self).values() if isinstance(v, (int, float)) and v is not None]
@@ -102,6 +104,14 @@ class FiniteGratingModel:
             raise ValueError("Use 2–9 subpixel samples per axis")
         if abs(self.target_angle_deg) >= 85 or self.target_waist_um <= 0:
             raise ValueError("Target angle must be below 85° and target waist must be positive")
+        if self.target_reference_z_um is not None:
+            lower = self.waveguide_height_um + 2*self.mesh_um
+            upper = self.waveguide_height_um + self.top_padding_um - self.absorber_um - 2*self.mesh_um
+            if not lower <= self.target_reference_z_um <= upper:
+                raise ValueError(f"Target reference height must lie in the nonabsorbing upper cladding from {lower:.4g} to {upper:.4g} µm")
+        clear_top = self.top_padding_um-self.absorber_um
+        if not self.mesh_um <= self.gaussian_source_offset_um <= clear_top/2:
+            raise ValueError("Gaussian source-plane separation must be at least one mesh cell and no more than half the nonabsorbing top-cladding space")
         if self.excitation not in ("waveguide", "fiber"):
             raise ValueError("Excitation must be 'waveguide' or 'fiber'")
 
@@ -120,6 +130,38 @@ def _tooth_geometry(model: FiniteGratingModel):
 
 def _grating_length(model: FiniteGratingModel) -> float:
     return float(_tooth_geometry(model)[2][-1])
+
+
+def _top_monitor_index(model: FiniteGratingModel, z: np.ndarray) -> int:
+    """Place the angular monitor inside the physical, nonabsorbing cladding."""
+    physical_top = z[-1]-model.absorber_um
+    clear = max(physical_top-model.waveguide_height_um, 3*model.mesh_um)
+    target = min(model.waveguide_height_um+.8*clear,
+                 physical_top-model.gaussian_source_offset_um-2.5*model.mesh_um)
+    return int(np.clip(np.argmin(abs(z-target)), 2, z.size-3))
+
+
+def _target_spectrum_at_plane(model: FiniteGratingModel, x: np.ndarray,
+                              k0: float, z_plane: float):
+    """Return the declared outgoing Gaussian port propagated to ``z_plane``.
+
+    ``target_center_um`` is defined at ``target_reference_z_um``.  When no
+    reference height is supplied, the evaluated monitor plane is the reference,
+    preserving the legacy result.
+    """
+    dx=float(x[1]-x[0])
+    center=model.target_center_um if model.target_center_um is not None else _grating_length(model)/2
+    reference_z=z_plane if model.target_reference_z_um is None else model.target_reference_z_um
+    line=np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(
+        1j*(model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))*(x-center)+
+            np.deg2rad(model.target_phase_deg)))
+    spectrum=dx*np.fft.fftshift(np.fft.fft(np.fft.ifftshift(line)))
+    kx=2*np.pi*np.fft.fftshift(np.fft.fftfreq(x.size,d=dx))
+    kz2=(model.cladding_n*k0)**2-kx**2; propagating=kz2>0
+    kz=np.sqrt(np.maximum(kz2,0)); spectrum[~propagating]=0
+    spectrum*=np.exp(1j*kz*(z_plane-reference_z))
+    plane_line=np.fft.fftshift(np.fft.ifft(np.fft.ifftshift(spectrum/dx)))
+    return center,reference_z,kx,kz,propagating,spectrum,plane_line
 
 
 def finite_grid_limit() -> int:
@@ -336,6 +378,21 @@ def _angular_power(field, j, x, z, n, k0, upward=True):
     return kx,kz,component,propagating,power,dk
 
 
+def _lateral_port_window(model: FiniteGratingModel, x: np.ndarray,
+                         include_measurement_taper: bool = False) -> np.ndarray:
+    """Finite-window weighting shared by synthesized and analyzed free-space ports."""
+    dx=float(x[1]-x[0]); window=np.ones(x.size)
+    edge=max(2,int(np.ceil(model.absorber_um/dx)))
+    ramp=np.sin(np.linspace(0,np.pi/2,edge))**2
+    window[:edge]=ramp; window[-edge:]=ramp[::-1]
+    if include_measurement_taper:
+        measure=np.ones(x.size); m=max(2,int(.08*x.size))
+        taper=.5*(1-np.cos(np.linspace(0,np.pi,m)))
+        measure[:m]=taper; measure[-m:]=taper[::-1]
+        window*=measure
+    return window
+
+
 def _angular_spectrum_rows(kx, kz, component, propagating, n, k0,
                            normalization_power):
     """Serialize a propagating angular spectrum with an integrable density."""
@@ -376,17 +433,19 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
     _,backward=_mode_amplitudes(total,right_i,phi,z,dx,beta)
     residual_guided=beta*abs(leftward)**2/incident_power
     back_reflection=beta*abs(backward)**2/incident_power
-    top_j=min(z.size-3,int(round((z[-1]-model.absorber_um-3*dz-z[0])/dz)))
+    top_j=_top_monitor_index(model,z)
     bottom_j=max(2,int(round((z[0]+model.absorber_um+3*dz-z[0])/dz)))
     kx,kz,up,prop,up_power,dk=_angular_power(total,top_j,x,z,model.cladding_n,k0,True)
     lower_n = (model.handle_n if model.box_thickness_um is not None
                and model.handle_n is not None else model.substrate_n)
     *_,down_power,_=_angular_power(total,bottom_j,x,z,lower_n,k0,False)
     upward=up_power/incident_power; substrate=down_power/incident_power
-    center=model.target_center_um if model.target_center_um is not None else _grating_length(model)/2
-    target=np.exp(-((x-center)/model.target_waist_um)**2)*np.exp(
-        1j*(model.cladding_n*k0*np.sin(np.deg2rad(model.target_angle_deg))*x+
-            np.deg2rad(model.target_phase_deg)))
+    center,target_reference_z,_,_,_,target_spectrum,target=_target_spectrum_at_plane(
+        model,x,k0,float(z[top_j]))
+    # The reciprocal free-space port is finite on the numerical window.  Use
+    # the same absorber-edge and analysis tapers as the reverse source and
+    # angular monitor so the two directions compare the same port.
+    target*= _lateral_port_window(model,x,include_measurement_taper=True)
     target_spectrum=dx*np.fft.fftshift(np.fft.fft(np.fft.ifftshift(target)))
     target_norm=float(np.sum(kz[prop]*abs(target_spectrum[prop])**2)*dk/(2*np.pi))
     overlap=np.sum(kz[prop]*np.conj(target_spectrum[prop])*up[prop])*dk/(2*np.pi)
@@ -417,7 +476,10 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
             "interface_conditions":"Ey and its normal derivative are continuous for this scalar TE, non-magnetic model",
             "magnetic_reconstruction":"Hx = i d_z(Ey)/k0; Hz = -i d_x(Ey)/k0 in relative units",
             "source":"discrete line source calibrated by an unpatterned reference-waveguide solve",
-            "excitation":"waveguide_to_grating_to_target_mode"},
+            "excitation":"waveguide_to_grating_to_target_mode",
+            "target_center_um":float(center),"target_reference_z_um":float(target_reference_z),
+            "upper_monitor_z_um":float(z[top_j]),
+            "upper_monitor_inside_absorber":bool(z[top_j] > z[-1]-model.absorber_um)},
         "mode":{"n_eff":beta/k0,"beta_per_um":beta,
                 "device_core_fraction":port_core_fraction,
                 "selection":"maximum electric-profile localization in the device layer above z=0",
@@ -481,26 +543,54 @@ def validate_finite_grating(model: FiniteGratingModel) -> dict:
     interface=solve_finite_grating(FiniteGratingModel(**{**asdict(model),
         "discretization":alternate_discretization}))
     interface_changes={key:abs(interface["efficiencies"][key]-coarse["efficiencies"][key]) for key in keys}
+    # A source-plane check is distinct from mesh and domain convergence.  It
+    # always uses the genuine Gaussian excitation and changes only the spacing
+    # between its equivalent-current plane and the fixed upper monitor.
+    source_base=(coarse if model.excitation=="fiber" else solve_finite_grating(
+        FiniteGratingModel(**{**asdict(model),"excitation":"fiber"})))
+    clear_top=model.top_padding_um-model.absorber_um
+    shifted_offset=min(model.gaussian_source_offset_um*1.5,.45*clear_top)
+    if abs(shifted_offset-model.gaussian_source_offset_um) < .5*model.mesh_um:
+        shifted_offset=max(model.mesh_um,model.gaussian_source_offset_um*.7)
+    source_plane=solve_finite_grating(FiniteGratingModel(**{**asdict(model),
+        "excitation":"fiber","gaussian_source_offset_um":shifted_offset}))
+    source_keys=("selected_mode_coupling","upward_radiation","substrate_radiation",
+                 "residual_forward_waveguide")
+    source_plane_changes={key:abs(source_plane["efficiencies"][key]-
+                                  source_base["efficiencies"][key]) for key in source_keys}
     power_residuals={name:abs(run["efficiencies"]["numerical_or_absorber_residual"])
                      for name,run in (("coarse",coarse),("refined",refined),
                                       ("absorber",absorber),("padding",padding),
                                       ("interface",interface))}
+    power_residuals.update({
+        "source_base":abs(source_base["efficiencies"]["numerical_or_absorber_residual"]),
+        "source_plane":abs(source_plane["efficiencies"]["numerical_or_absorber_residual"])})
+    monitor_checks={name:not bool(run["formulation"].get("upper_monitor_inside_absorber",
+                                    run["formulation"].get("monitor_inside_absorber",True)))
+                    for name,run in (("coarse",coarse),("refined",refined),
+                                     ("absorber",absorber),("padding",padding),
+                                     ("interface",interface),("source_base",source_base),
+                                     ("source_plane",source_plane))}
     maximum=max([*changes.values(),*absorber_changes.values(),*padding_changes.values(),
-                 *interface_changes.values()])
-    research=maximum <= 1e-2 and max(power_residuals.values()) <= 1e-2
-    publication=maximum <= 2e-3 and max(power_residuals.values()) <= 2e-3
+                 *interface_changes.values(),*source_plane_changes.values()])
+    research=maximum <= 1e-2 and max(power_residuals.values()) <= 1e-2 and all(monitor_checks.values())
+    publication=maximum <= 2e-3 and max(power_residuals.values()) <= 2e-3 and all(monitor_checks.values())
     geometry_rasterization={name:run["geometry"]["nominal_and_rasterized"]
         for name,run in (("coarse",coarse),("refined",refined),
                          ("interface",interface))}
     return {"coarse":coarse,"refined":refined,"absorber_variant":absorber,
             "padding_variant":padding,"interface_variant":interface,
+            "source_plane_variant":source_plane,
             "interface_variant_name":alternate_discretization,"changes":changes,
             "absorber_changes":absorber_changes,"padding_changes":padding_changes,
-            "interface_changes":interface_changes,
+            "interface_changes":interface_changes,"source_plane_changes":source_plane_changes,
+            "source_plane_offsets_um":{"base":model.gaussian_source_offset_um,
+                                       "variant":shifted_offset},
+            "monitor_position_checks":monitor_checks,
             "power_budget_residuals":power_residuals,"maximum_change":maximum,
             "geometry_rasterization":geometry_rasterization,
             "passed_research":research,"passed_publication_screen":publication,
-            "interpretation":"The certificate varies mesh, absorber strength, all domain paddings, and binary versus cell-averaged interface rasterization independently. Cell averaging is the scalar TE mass-term correction, not full-vector tensor smoothing. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
+            "interpretation":"The certificate varies mesh, absorber strength, all domain paddings, binary versus cell-averaged interface rasterization, and the Gaussian equivalent-current plane independently. Every angular monitor must remain outside the absorbing rim. Cell averaging is the scalar TE mass-term correction, not full-vector tensor smoothing. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
 
 
 def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
@@ -549,7 +639,8 @@ def benchmark_finite_grating(model: FiniteGratingModel) -> dict:
 
 
 _DESIGN_PARAMETERS = {name for name in FiniteGratingModel.__dataclass_fields__
-                      if name not in {"target_center_um","excitation",
+                      if name not in {"target_center_um","target_reference_z_um",
+                                      "gaussian_source_offset_um","excitation",
                                       "tooth_periods_um","tooth_fill_factors"}}
 def _with(model: FiniteGratingModel, parameter: str, value: float) -> FiniteGratingModel:
     if parameter not in _DESIGN_PARAMETERS:

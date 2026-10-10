@@ -41,6 +41,8 @@
     "target_angle_deg": 10.0,
     "target_waist_um": 5.4,
     "target_center_um": null,
+    "target_reference_z_um": 0.94,
+    "gaussian_source_offset_um": 0.15,
     "target_phase_deg": 0.0
   },
   "geometry_provenance": {
