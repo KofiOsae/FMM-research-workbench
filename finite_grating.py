@@ -173,6 +173,31 @@ def _permittivity(model: FiniteGratingModel, x, z):
     return eps.astype(complex), reference_2d.mean(axis=0).astype(complex)
 
 
+def _raster_geometry_metrics(model, x, z, eps, reference):
+    """Compare declared tooth geometry with the dielectric raster actually solved."""
+    dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
+    length=model.periods*model.period_um
+    patterned=(x[:,None]>=0)&(x[:,None]<=length)
+    removed_fraction=np.clip((reference[None,:].real-eps.real)/
+        max(model.core_n**2-model.cladding_n**2,1e-30),0,1)
+    removed=np.where(patterned,removed_fraction,0)
+    removed_area=float(np.trapezoid(np.trapezoid(removed,z,axis=1),x)/max(model.periods,1))
+    nominal_area=(1-model.fill_factor)*model.period_um*model.etch_depth_um
+    effective_fill=float(1-removed_area/max(model.period_um*model.etch_depth_um,1e-30))
+    nearest=lambda values,target: float(values[np.argmin(abs(values-target))])
+    return {"nominal_period_um":float(model.period_um),
+        "nominal_tooth_width_um":float(model.fill_factor*model.period_um),
+        "nominal_fill_factor":float(model.fill_factor),
+        "nominal_etch_depth_um":float(model.etch_depth_um),
+        "nominal_removed_area_um2_per_period":float(nominal_area),
+        "raster_effective_fill_in_etched_band":effective_fill,
+        "raster_removed_area_um2_per_period":removed_area,
+        "removed_area_relative_error":float((removed_area-nominal_area)/max(nominal_area,1e-30)),
+        "nearest_grid_tooth_edge_um":nearest(x,model.fill_factor*model.period_um),
+        "nearest_grid_etch_floor_um":nearest(z,model.waveguide_height_um-model.etch_depth_um),
+        "definition":"Raster metrics are computed from the exact epsilon array passed to the operator. Cell-averaged epsilon gives fractional silicon occupancy; binary nodes give zero/one occupancy."}
+
+
 def _absorber_sigma(axis, low, high, thickness, strength):
     sigma = np.zeros_like(axis, dtype=float)
     lower = axis < low+thickness
@@ -343,7 +368,8 @@ def solve_finite_grating(model: FiniteGratingModel) -> dict:
         "model":asdict(model),"grid":{"nx":x.size,"nz":z.size,"cells":x.size*z.size,"dx_um":dx,"dz_um":dz},
         "geometry":{"upper_cladding_n":model.cladding_n,"device_n":model.core_n,
                     "lower_stack":stack,"rasterization":model.discretization,
-                    "subpixel_samples_per_axis":model.subpixel_samples if model.discretization=="cell_average" else 1},
+                    "subpixel_samples_per_axis":model.subpixel_samples if model.discretization=="cell_average" else 1,
+                    "nominal_and_rasterized":_raster_geometry_metrics(model,x,z,eps,reference)},
         "formulation":{"time_convention":"exp(-i omega t)",
             "equation":"(d_x^2 + d_z^2 + k0^2 epsilon_r) Ey = b",
             "interface_conditions":"Ey and its normal derivative are continuous for this scalar TE, non-magnetic model",
@@ -421,12 +447,16 @@ def validate_finite_grating(model: FiniteGratingModel) -> dict:
                  *interface_changes.values()])
     research=maximum <= 1e-2 and max(power_residuals.values()) <= 1e-2
     publication=maximum <= 2e-3 and max(power_residuals.values()) <= 2e-3
+    geometry_rasterization={name:run["geometry"]["nominal_and_rasterized"]
+        for name,run in (("coarse",coarse),("refined",refined),
+                         ("interface",interface))}
     return {"coarse":coarse,"refined":refined,"absorber_variant":absorber,
             "padding_variant":padding,"interface_variant":interface,
             "interface_variant_name":alternate_discretization,"changes":changes,
             "absorber_changes":absorber_changes,"padding_changes":padding_changes,
             "interface_changes":interface_changes,
             "power_budget_residuals":power_residuals,"maximum_change":maximum,
+            "geometry_rasterization":geometry_rasterization,
             "passed_research":research,"passed_publication_screen":publication,
             "interpretation":"The certificate varies mesh, absorber strength, all domain paddings, and binary versus cell-averaged interface rasterization independently. Cell averaging is the scalar TE mass-term correction, not full-vector tensor smoothing. Wavelength sampling and comparison with an external benchmark remain separate publication checks."}
 

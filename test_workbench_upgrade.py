@@ -103,6 +103,10 @@ class UpgradeTests(unittest.TestCase):
         self.assertIn('scattered_Ey2',incoming['field'])
         self.assertIn('incident',incoming['angular_spectrum'])
         self.assertIn('annotations',incoming['field'])
+        raster=incoming['geometry']['nominal_and_rasterized']
+        self.assertAlmostEqual(raster['nominal_removed_area_um2_per_period'],
+            (1-model.fill_factor)*model.period_um*model.etch_depth_um)
+        self.assertTrue(np.isfinite(raster['raster_removed_area_um2_per_period']))
         certificate=reciprocity_certificate(model)
         self.assertLess(certificate['relative_magnitude_error'],.1)
         self.assertGreater(certificate['forward_complex_coefficient']['magnitude'],0)

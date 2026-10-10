@@ -60,7 +60,7 @@ def solve_fiber_incident(model):
     """
     from finite_grating import (_axes, _permittivity, _absorber_sigma,
         _operator, _te_mode, _mode_amplitudes, _angular_power,
-        _angular_spectrum_rows)
+        _angular_spectrum_rows, _raster_geometry_metrics)
 
     model.validate(); x,z=_axes(model); dx=float(x[1]-x[0]); dz=float(z[1]-z[0])
     eps,reference=_permittivity(model,x,z); k0=2*np.pi/model.wavelength_um
@@ -153,7 +153,8 @@ def solve_fiber_incident(model):
       "model":asdict(model),"grid":{"nx":x.size,"nz":z.size,"cells":x.size*z.size,"dx_um":dx,"dz_um":dz},
       "geometry":{"upper_cladding_n":model.cladding_n,"device_n":model.core_n,
           "lower_stack":stack,"rasterization":model.discretization,
-          "subpixel_samples_per_axis":model.subpixel_samples if model.discretization=="cell_average" else 1},
+          "subpixel_samples_per_axis":model.subpixel_samples if model.discretization=="cell_average" else 1,
+          "nominal_and_rasterized":_raster_geometry_metrics(model,x,z,eps,reference)},
       "formulation":{"time_convention":"exp(-i omega t)",
           "equation":"(d_x^2 + d_z^2 + k0^2 epsilon_r) Ey = b",
           "source":"discrete equivalent current b=A_cladding E_inc for a downward Gaussian angular spectrum",

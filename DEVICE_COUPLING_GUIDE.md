@@ -119,7 +119,10 @@ The interface reports target-mode efficiency, insertion loss, upward and
 substrate radiation, residual forward guided power, back-reflection,
 directionality, accounted power, and numerical/absorber residual. Its
 validation command independently changes mesh spacing, absorber strength, and
-all domain paddings, and interface rasterization. The selectable cell-averaged
+all domain paddings, and interface rasterization. Its Trust table records the
+declared tooth width, etch depth and removed area alongside the effective fill,
+removed area, and nearest grid interfaces actually passed to the operator. This
+separates a geometry-raster change from electromagnetic convergence. The selectable cell-averaged
 epsilon corrects the scalar TE mass coefficient; it is not the anisotropic
 subpixel tensor of a full-vector Maxwell discretization. Complex Ey, its phase,
 relative reconstructed Poynting components, and the epsilon raster are exported.
