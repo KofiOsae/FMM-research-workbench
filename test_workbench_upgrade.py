@@ -16,7 +16,7 @@ from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
 from bands import BandModel, full_zone_gaps
 from sweep import diffraction_order_sweep
-from finite_grating import FiniteGratingModel, solve_finite_grating
+from finite_grating import FiniteGratingModel, solve_finite_grating, _objective_result
 from finite_grating_bidirectional import reciprocity_certificate
 
 
@@ -123,6 +123,10 @@ class UpgradeTests(unittest.TestCase):
         self.assertLess(certificate['relative_magnitude_error'],.1)
         self.assertGreater(certificate['forward_complex_coefficient']['magnitude'],0)
         self.assertGreater(certificate['reverse_complex_coefficient']['magnitude'],0)
+        _,metrics,directions=_objective_result(model,'bidirectional_worst_case')
+        self.assertAlmostEqual(metrics['selected_mode_coupling'],min(
+            directions['waveguide_to_gaussian']['selected_mode_coupling'],
+            directions['gaussian_to_waveguide']['selected_mode_coupling']))
 
     def wait(self,key):
         deadline=time.monotonic()+3

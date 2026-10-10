@@ -201,14 +201,17 @@ design cycle:
    target angle, or beam waist. A point is eligible only when its power-budget
    residual passes the stated screen.
 4. **Bounded optimization:** vary one to five physical parameters together.
-   Target-mode efficiency is the objective; minimum directionality, maximum
-   reflection, and maximum power residual are separate feasibility conditions.
+   Optimize the selected direction, the mean of both independently solved
+   directions, or the weaker-direction efficiency. Minimum directionality,
+   maximum reflection, and maximum power residual remain separate feasibility
+   conditions and apply to both solves for a bidirectional objective.
 5. **Robust optimization:** reuse fixed seeded Gaussian perturbations at every
    candidate and penalize variability. This is a screening objective, not a
    yield guarantee.
 6. **Fabrication tolerance:** propagate stated independent Gaussian parameter
-   distributions and report efficiency percentiles plus yield against the
-   entered efficiency, directionality, reflection, and residual limits.
+   distributions through the selected or both source directions and report
+   objective percentiles plus yield against the entered efficiency,
+   directionality, reflection, and residual limits.
 7. **Trust validation:** independently vary mesh, absorber strength, all domain
    paddings, and binary versus cell-averaged scalar interfaces. Recompute a
    locally refined spectrum on the selected final design.

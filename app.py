@@ -660,7 +660,8 @@ class Handler(BaseHTTPRequestHandler):
                     data.get("uncertainties", []), int(data.get("samples", 20)),
                     int(data.get("seed", 12345)), float(data.get("minimum_efficiency", .5)),
                     float(data.get("maximum_reflection", .05)),
-                    float(data.get("minimum_directionality", .5)))
+                    float(data.get("minimum_directionality", .5)),
+                    str(data.get("objective_mode", "selected_direction")))
             elif operation == "finite_grating_optimize":
                 payload = optimize_finite_grating(FiniteGratingModel(**data["model"]),
                     data.get("variables", []), int(data.get("generations", 3)),
@@ -669,7 +670,8 @@ class Handler(BaseHTTPRequestHandler):
                     float(data.get("maximum_reflection", 1)),
                     float(data.get("maximum_power_residual", .03)),
                     int(data.get("robust_samples", 1)), data.get("uncertainty_sigma", {}),
-                    float(data.get("variability_weight", 0)))
+                    float(data.get("variability_weight", 0)),
+                    str(data.get("objective_mode", "selected_direction")))
             elif operation == "coupled_branches":
                 payload = fit_coupled_branches(data["parameter"], data["branch_1_um"],
                     data["branch_2_um"],

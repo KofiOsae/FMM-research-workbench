@@ -520,6 +520,33 @@ def _compact(result: dict) -> dict:
             "n_eff": result["mode"]["n_eff"], **result["efficiencies"]}
 
 
+def _objective_result(model: FiniteGratingModel, mode: str):
+    """Return one result and constraint metrics for a directional objective."""
+    if mode == "selected_direction":
+        result=solve_finite_grating(model)
+        metrics=dict(result["efficiencies"])
+        metrics.setdefault("selected_mode_coupling",metrics.get("target_free_space_mode",0.0))
+        return result,metrics,None
+    if mode not in ("bidirectional_worst_case","bidirectional_mean"):
+        raise ValueError("Objective direction must be selected_direction, bidirectional_worst_case, or bidirectional_mean")
+    forward=solve_finite_grating(FiniteGratingModel(**{**asdict(model),"excitation":"waveguide"}))
+    reverse=solve_finite_grating(FiniteGratingModel(**{**asdict(model),"excitation":"fiber"}))
+    fe=forward["efficiencies"]; re=reverse["efficiencies"]
+    pair=[fe["selected_mode_coupling"],re["selected_mode_coupling"]]
+    objective=min(pair) if mode=="bidirectional_worst_case" else float(np.mean(pair))
+    combined={**(re if model.excitation=="fiber" else fe),
+        "selected_mode_coupling":float(objective),"target_free_space_mode":float(objective),
+        "directionality":float(min(fe["directionality"],re["directionality"])),
+        "back_reflection":float(max(fe["back_reflection"],re["back_reflection"])),
+        "numerical_or_absorber_residual":float(max(abs(fe["numerical_or_absorber_residual"]),
+                                                   abs(re["numerical_or_absorber_residual"]))) }
+    primary=reverse if model.excitation=="fiber" else forward
+    details={"mode":mode,"waveguide_to_gaussian":_compact(forward),
+             "gaussian_to_waveguide":_compact(reverse),
+             "objective_efficiency":float(objective)}
+    return primary,combined,details
+
+
 def finite_grating_spectrum(model: FiniteGratingModel, start: float, stop: float,
                             points: int) -> dict:
     if not np.isfinite([start,stop]).all() or start >= stop or not 3 <= points <= 81:
@@ -566,7 +593,8 @@ def finite_grating_tolerance(model: FiniteGratingModel, uncertainties: list[dict
                              samples: int = 20, seed: int = 12345,
                              minimum_efficiency: float = .5,
                              maximum_reflection: float = .05,
-                             minimum_directionality: float = .5) -> dict:
+                             minimum_directionality: float = .5,
+                             objective_mode: str = "selected_direction") -> dict:
     if not 5 <= samples <= 200:
         raise ValueError("Use 5–200 tolerance samples")
     normalized=[]
@@ -589,7 +617,9 @@ def finite_grating_tolerance(model: FiniteGratingModel, uncertainties: list[dict
             draw=float(np.clip(rng.normal(float(values[item["parameter"]]),item["sigma"]),item["lower"],item["upper"]))
             values[item["parameter"]]=int(round(draw)) if item["parameter"]=="periods" else draw
         try:
-            result=solve_finite_grating(FiniteGratingModel(**values)); row={"sample":sample,"parameters":{i["parameter"]:values[i["parameter"]] for i in normalized},**_compact(result)}
+            result,e,directions=_objective_result(FiniteGratingModel(**values),objective_mode)
+            row={"sample":sample,"parameters":{i["parameter"]:values[i["parameter"]] for i in normalized},**_compact(result),
+                 **e,"directions":directions}
             row["passed_specification"]=bool(row["target_free_space_mode"]>=minimum_efficiency and row["back_reflection"]<=maximum_reflection and row["directionality"]>=minimum_directionality and abs(row["numerical_or_absorber_residual"])<=.03)
             rows.append(row)
         except (ValueError,np.linalg.LinAlgError) as exc:
@@ -602,7 +632,7 @@ def finite_grating_tolerance(model: FiniteGratingModel, uncertainties: list[dict
         "upper":item["upper"] if np.isfinite(item["upper"]) else None}
         for item in normalized]
     return {"samples":rows,"completed":len(valid),"failed":samples-len(valid),"seed":seed,
-        "uncertainties":serialized_uncertainties,"specification":{"minimum_efficiency":minimum_efficiency,
+        "uncertainties":serialized_uncertainties,"objective_mode":objective_mode,"specification":{"minimum_efficiency":minimum_efficiency,
         "maximum_reflection":maximum_reflection,"minimum_directionality":minimum_directionality,
         "maximum_power_residual":.03},"yield_fraction":float(sum(r["passed_specification"] for r in rows)/samples),
         "efficiency_statistics":{"mean":float(values.mean()),"sd":float(values.std(ddof=1)) if len(values)>1 else 0,
@@ -617,7 +647,8 @@ def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
                             maximum_power_residual: float = .03,
                             robust_samples: int = 1,
                             uncertainty_sigma: dict | None = None,
-                            variability_weight: float = 0) -> dict:
+                            variability_weight: float = 0,
+                            objective_mode: str = "selected_direction") -> dict:
     if not 1 <= len(variables) <= 5 or not 1 <= generations <= 30 or not 4 <= population <= 15:
         raise ValueError("Use 1–5 variables, 1–30 generations, and population 4–15")
     names=[]; bounds=[]
@@ -638,7 +669,7 @@ def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
             candidate=model
             for name,value in zip(names,values): candidate=_with(candidate,name,value)
             try:
-                result=solve_finite_grating(candidate); e=result["efficiencies"]
+                result,e,_=_objective_result(candidate,objective_mode)
                 violation=max(0,minimum_directionality-e["directionality"])+max(0,e["back_reflection"]-maximum_reflection)+max(0,abs(e["numerical_or_absorber_residual"])-maximum_power_residual)
                 losses.append(-e["target_free_space_mode"]+1e3*violation)
             except (ValueError,np.linalg.LinAlgError): losses.append(1e6)
@@ -648,7 +679,7 @@ def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
     result=differential_evolution(evaluate,bounds,seed=seed,maxiter=generations,popsize=population,polish=False,updating="immediate",workers=1)
     best=model
     for name,value in zip(names,result.x): best=_with(best,name,float(value))
-    solved=solve_finite_grating(best); e=solved["efficiencies"]
+    solved,e,directional_results=_objective_result(best,objective_mode)
     nominal_feasible=e["directionality"]>=minimum_directionality and e["back_reflection"]<=maximum_reflection and abs(e["numerical_or_absorber_residual"])<=maximum_power_residual
     robust_efficiencies=[]; robust_pass=[]
     for sample in range(robust_samples):
@@ -656,7 +687,7 @@ def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
         for i,(name,(lower,upper)) in enumerate(zip(names,bounds)):
             value=float(np.clip(result.x[i]+perturb[sample,i]*sigmas.get(name,0),lower,upper))
             candidate=_with(candidate,name,value)
-        trial=solve_finite_grating(candidate)["efficiencies"]
+        _,trial,_=_objective_result(candidate,objective_mode)
         robust_efficiencies.append(trial["target_free_space_mode"])
         robust_pass.append(trial["directionality"]>=minimum_directionality and
             trial["back_reflection"]<=maximum_reflection and
@@ -667,7 +698,8 @@ def optimize_finite_grating(model: FiniteGratingModel, variables: list[dict],
         "all_samples_feasible":bool(all(robust_pass))}
     feasible=nominal_feasible and robust_summary["all_samples_feasible"]
     return {"best_parameters":{k:(int(round(v)) if k=="periods" else float(v)) for k,v in zip(names,result.x)},
-        "best_result":solved,"best_efficiency":e["target_free_space_mode"],"feasible":feasible,
+        "best_result":solved,"best_efficiency":e["selected_mode_coupling"],"feasible":feasible,
+        "objective_mode":objective_mode,"best_directional_results":directional_results,
         "constraints":{"minimum_directionality":minimum_directionality,"maximum_reflection":maximum_reflection,"maximum_power_residual":maximum_power_residual},
         "robust_samples":robust_samples,"uncertainty_sigma":sigmas,"variability_weight":variability_weight,
         "robust_summary":robust_summary,
