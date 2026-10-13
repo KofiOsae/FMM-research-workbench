@@ -17,6 +17,9 @@
 - Full suite: 106 tests passed. `UI-005` is verified. `PLOT-002` is tested for
   the main spectrum/field canvas; the separate audit of every secondary plot
   remains tracked under `UI-003` and `PLOT-001`.
+- Committed as `f327996`, pushed to `main`, restarted the local service, and
+  verified that local and Render both serve release marker
+  `three-region-workspace-2026-10-13` and the new JavaScript/CSS assets.
 
 ## 2026-10-13 — PM-001 persistent execution framework
 

@@ -18,9 +18,10 @@ Updated: 2026-10-13
   harmless Conda `Invoke-Expression` warning; use `.venv\Scripts\python.exe`.
 - **Uncommitted changes:** inspect `git status`; do not add the user's untracked
   PDFs, PowerPoint, MATLAB, or JSON project files.
-- **Immediate next action:** commit and deploy PM-001/UI-005/PLOT-002, verify
-  local and Render markers, then inspect project serialization in `index.html`,
-  `workbench.js`, and `app.py` for ARCH-001.
+- **Immediate next action:** map the legacy version-1 project fields and the
+  chained specialist-workspace collectors, then introduce a version-2 envelope
+  with explicit `solver_input`, `workspace_state`, `result`, `validation`, and
+  `environment` sections plus a version-1 migration test.
 - **Dependencies:** preserve old JSON project import; layout/UI state must not
   change the solver-input fingerprint.
 - **Decision:** build shared schemas before independent multilayer and
