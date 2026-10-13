@@ -169,3 +169,27 @@ body[data-tool-view="focus"] main{margin-top:10px}
 @media (max-width:759px),(max-width:999px) and (orientation:portrait){body[data-tool-view="focus"] .operation-nav{top:0!important}}
 @media(max-width:700px){.workspace-deck{width:100%;padding:0 10px}.active-tool-dock{bottom:7px;min-height:48px}.active-tool-dock button{padding:7px 9px;font-size:12px}.research-shell-enabled[data-tool-view="focus"] .scope-status{margin:0 0 0 auto}.deck-controls{grid-column:1/-1!important}.deck-controls>div{width:100%}.deck-controls button{flex:1}.run-tray{bottom:68px}}
 @media print{.active-tool-dock,.deck-controls{display:none!important}.workspace-deck-hidden{display:block!important}.workspace-deck>aside,.workspace-deck>section{display:block!important}}
+
+/* Professional research workspace: configuration, scientific view, and
+   results/diagnostics use the available viewport as independent regions. */
+#compactMore{min-height:34px;padding:7px 12px;border:1px solid #c8d9e5;border-radius:8px;background:#f4f8fb;color:#155c83;font-weight:750}
+body.professional-layout .deck-controls{display:none!important}
+body.professional-layout[data-tool-view="focus"] .operation-nav{display:flex;align-items:end;flex-wrap:wrap;padding:6px max(12px,calc((100vw - 1880px)/2));gap:8px}
+body.professional-layout[data-tool-view="focus"] .operation-nav>div:has(#quickAction){flex:0 1 330px}
+body.professional-layout[data-tool-view="focus"] #quickAction{width:100%;max-width:none}
+body.professional-layout[data-tool-view="focus"] #quickRun{min-width:125px}
+main.research-three-region{display:grid!important;grid-template-columns:minmax(360px,.9fr) minmax(520px,1.45fr) minmax(340px,.9fr);width:min(calc(100% - 20px),1900px);height:calc(100vh - var(--study-top,150px) - 18px);min-height:620px;max-width:1900px;gap:10px;margin:10px auto 0;padding:0;overflow:hidden}
+main.research-three-region>aside,main.research-three-region>section,main.research-three-region>.diagnostics-region{display:block!important;position:relative!important;top:auto!important;min-width:0;max-height:none!important;height:100%;overflow:auto;padding:0 8px 90px 0;scrollbar-width:thin;background:transparent}
+main.research-three-region>section{padding-left:2px}main.research-three-region>.diagnostics-region{padding-right:2px}
+main.research-three-region .card{width:100%;max-width:none;margin:0 0 10px;padding:16px;border-radius:11px}
+main.research-three-region .card .row,main.research-three-region .card .row3{gap:9px}
+main.research-three-region input[type="number"]{width:100%;min-height:42px;font-variant-numeric:tabular-nums}
+.region-header{position:sticky;top:0;z-index:12;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:58px;margin:0 0 10px;padding:9px 11px;border:1px solid #cbdde8;border-radius:11px;background:#f8fbfdf2;box-shadow:0 5px 16px #17384d12;backdrop-filter:blur(12px)}
+.region-header span{display:block;color:#123f5d;font-size:14px;font-weight:850;letter-spacing:.01em}.region-header small{display:block;margin-top:2px;color:#687d8e;font-size:10px;line-height:1.25}.region-header select{width:min(52%,300px);min-height:36px;background:#fff}
+.diagnostics-region .notice,.diagnostics-region .metric{border-radius:8px}.diagnostics-region table{font-size:12px}
+body.professional-layout .workspace-context,body.professional-layout .projectbar,body.professional-layout #healthbar:not(.bad){display:none!important}
+body.professional-layout .active-tool-dock{display:none!important}
+body.professional-layout footer{display:none}
+@media(max-width:1399px) and (min-width:1000px){main.research-three-region{grid-template-columns:minmax(330px,.8fr) minmax(470px,1.2fr);height:auto;min-height:calc(100vh - var(--study-top,150px) - 18px);overflow:visible}main.research-three-region>aside,main.research-three-region>section{height:calc(100vh - var(--study-top,150px) - 18px);position:sticky!important;top:var(--study-top,150px)!important}main.research-three-region>.diagnostics-region{grid-column:2;height:auto;min-height:300px;overflow:visible;padding-bottom:30px}}
+@media(max-width:999px){main.research-three-region{display:block!important;width:100%;height:auto;min-height:0;overflow:visible;padding:0 10px}main.research-three-region>aside,main.research-three-region>section,main.research-three-region>.diagnostics-region{height:auto;max-height:none!important;overflow:visible;padding:0 0 24px;position:static!important}.region-header{position:sticky;top:0}.region-header select{width:55%}body.professional-layout[data-tool-view="focus"] .operation-nav{display:grid;grid-template-columns:minmax(0,1fr) auto auto}}
+@media(max-width:600px){.region-header{display:block}.region-header select{width:100%;max-width:none;margin-top:8px}body.professional-layout[data-tool-view="focus"] .operation-nav{grid-template-columns:1fr}body.professional-layout[data-tool-view="focus"] .operation-nav>*{grid-column:1!important}}

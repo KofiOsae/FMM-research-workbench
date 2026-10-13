@@ -1,5 +1,6 @@
 """Regression checks for the training-driven workbench changes."""
 import json
+import re
 import tempfile
 import time
 import unittest
@@ -31,6 +32,31 @@ class UpgradeTests(unittest.TestCase):
     def tearDownClass(cls):
         run_jobs._history_path = cls._original_history_path
         cls._history_directory.cleanup()
+
+    def test_persistent_master_roadmap_contract(self):
+        root = Path(__file__).resolve().parent
+        required = [
+            root/'AGENTS.md', root/'docs'/'MASTER_ROADMAP.md',
+            root/'docs'/'TASK_TRACKER.md', root/'docs'/'IMPLEMENTATION_LOG.md',
+            root/'docs'/'RESUME_STATE.md', root/'docs'/'VALIDATION_MATRIX.md',
+            root/'docs'/'ARCHITECTURE_DECISIONS.md']
+        for path in required:
+            self.assertTrue(path.is_file(), str(path))
+            self.assertGreater(len(path.read_text(encoding='utf-8')), 200)
+        tracker = (root/'docs'/'TASK_TRACKER.md').read_text(encoding='utf-8')
+        allowed = {'NOT_STARTED', 'IN_PROGRESS', 'BLOCKED',
+                   'IMPLEMENTED', 'TESTED', 'VERIFIED'}
+        rows = re.findall(r'^\| ([A-Z]+-[0-9]+) \| ([A-Z_]+) \|',
+                          tracker, flags=re.MULTILINE)
+        self.assertGreaterEqual(len(rows), 35)
+        self.assertTrue({status for _, status in rows} <= allowed)
+        self.assertEqual(len({task for task, _ in rows}), len(rows))
+        resume = (root/'docs'/'RESUME_STATE.md').read_text(encoding='utf-8')
+        for field in ['Current task', 'Stage', 'Files changed',
+                      'Last successful tests', 'Known failures',
+                      'Uncommitted changes', 'Immediate next action',
+                      'Dependencies', 'Decision']:
+            self.assertIn(field, resume)
 
     def model(self):
         return StackModel(incident_n=1, exit_n=1.5, wavelength_um=1,
@@ -213,7 +239,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'focused-tool-deck-2026-10-10')
+                self.assertEqual(health['version'],'three-region-workspace-2026-10-13')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
@@ -294,6 +320,14 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'show-focus-options',script)
                 self.assertIn(b'active-tool-dock',script)
                 self.assertIn(b'workspace-deck-hidden',script)
+                self.assertIn(b'research-three-region',script)
+                self.assertIn(b'Results & diagnostics',script)
+                self.assertIn(b'scientificViewSelect',script)
+            with urlopen(base+'/') as response:
+                page=response.read()
+                self.assertIn(b"delete c._chart",page)
+                self.assertIn(b"ylabel:'y / period'",page)
+                self.assertIn(b"installMapHover(c)",page)
             with urlopen(base+'/workbench.css') as response:
                 stylesheet=response.read()
                 self.assertIn(b'orientation:landscape',stylesheet)
@@ -307,6 +341,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'active-tool-dock',stylesheet)
                 self.assertIn(b'workspace-deck',stylesheet)
                 self.assertIn(b'not(.show-focus-options)',stylesheet)
+                self.assertIn(b'Professional research workspace',stylesheet)
+                self.assertIn(b'grid-template-columns:minmax(360px',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)

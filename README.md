@@ -6,6 +6,8 @@ A local browser interface for periodic photonic structures. Seven workspaces sep
 
 Development was substantially assisted by **ChatGPT Codex by OpenAI**. See [AI_ASSISTANCE.md](AI_ASSISTANCE.md) for the acknowledgement and responsibility statement.
 
+Development state is tracked in the version-controlled [master roadmap](docs/MASTER_ROADMAP.md), [task tracker](docs/TASK_TRACKER.md), [validation matrix](docs/VALIDATION_MATRIX.md), and [resume checkpoint](docs/RESUME_STATE.md). These distinguish verified scope from implemented, tested, blocked, and future work.
+
 ## First use and the training upgrade
 
 Open [the illustrated first-use handbook](FIRST_STEPS.html), or choose **First steps** from the app toolbar. It includes an external MPB benchmark, analytic controls, exact inputs, expected behavior, interpretation, and warning recovery. [The metasurface and arbitrary-geometry guide](METASURFACE_GUIDE.html) continues from an application target through binary-mask import, unit-cell validation, a local-periodic phase library, flat-lens assignment, and microfiber-knot spectral metrics. Use the browser print command for a PDF copy.
