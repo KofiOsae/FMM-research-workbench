@@ -213,7 +213,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'research-shell-2026-10-10')
+                self.assertEqual(health['version'],'focused-tool-deck-2026-10-10')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
@@ -290,6 +290,10 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'workspace-context',script)
                 self.assertIn(b'Required evidence',script)
                 self.assertIn(b'workflow-step',script)
+                self.assertIn(b'deckFocused',script)
+                self.assertIn(b'show-focus-options',script)
+                self.assertIn(b'active-tool-dock',script)
+                self.assertIn(b'workspace-deck-hidden',script)
             with urlopen(base+'/workbench.css') as response:
                 stylesheet=response.read()
                 self.assertIn(b'orientation:landscape',stylesheet)
@@ -299,6 +303,10 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'research-shell-enabled',stylesheet)
                 self.assertIn(b'workspace-evidence',stylesheet)
                 self.assertIn(b'workflow-rail',stylesheet)
+                self.assertIn(b'Focused tool deck',stylesheet)
+                self.assertIn(b'active-tool-dock',stylesheet)
+                self.assertIn(b'workspace-deck',stylesheet)
+                self.assertIn(b'not(.show-focus-options)',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
