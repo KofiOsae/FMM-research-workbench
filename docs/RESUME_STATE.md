@@ -1,19 +1,20 @@
 # Resume state
 
-Updated: 2026-10-13
+Updated: 2026-10-14
 
 - **Current task:** `ARCH-001` — versioned project envelope and solver-input
   fingerprint separation.
 - **Stage:** inspect the current project import/export and serialization paths,
   define the migration boundary, then add compatibility and fingerprint tests.
-- **Most recent verified checkpoint:** `PM-001`, `UI-001`, `UI-002`, and
-  `UI-005`; `PLOT-002` is tested within the main spectrum/field canvas scope.
-- **Files changed at this checkpoint:** `AGENTS.md`, `README.md`,
-  `test_workbench_upgrade.py`, and all files under `docs/` listed by PM-001.
+- **Most recent verified checkpoint:** `UI-006`; `GEO-002`, `PLOT-002`, and
+  `PLOT-003` are tested within their stated main-preview/main-canvas scope.
+- **Files changed at this checkpoint:** `app.py`, `index.html`, `workbench.js`,
+  `workbench.css`, `METASURFACE_GUIDE.html`, `test_workbench_upgrade.py`, and
+  this tracker state.
 - **Last successful tests before this checkpoint:** 106 tests passed after the
-  persistent protocol, three-region interface, responsive layout, and main
-  spectrum/field canvas changes. HTTP asset integration and live run checks
-  passed; no browser console errors were observed.
+  persistent shell, adjustable three-region interface, geometry transform,
+  offset-preview, and plot-state changes. HTTP assets and live 1265 px browser
+  checks passed; no browser console errors were observed.
 - **Known failures:** none in tracked code. A system PowerShell profile emits a
   harmless Conda `Invoke-Expression` warning; use `.venv\Scripts\python.exe`.
 - **Uncommitted changes:** inspect `git status`; do not add the user's untracked

@@ -15,7 +15,9 @@ Allowed states: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `IMPLEMENTED`,
 | UI-003 | IN_PROGRESS | PLOT-001 | All dynamic cards, multi-series legends, 2D maps, material colors, phase masks, hovers, and exports share the documented renderer contract. |
 | UI-004 | IN_PROGRESS | UI-001 | Every advanced control explains meaning, units, valid/recommended range, cost, physical choice, and warning recovery. |
 | UI-005 | VERIFIED | UI-001, UI-002 | Desktop uses Configuration, Scientific view, and Results & diagnostics regions; newest output is visible beside its quality evidence; top controls are compact; desktop/laptop/tablet visual and run interaction checks pass. |
+| UI-006 | VERIFIED | UI-005 | Header/workspace navigation remains visible, three columns persist from 1180 px, configuration and diagnostics widths are user adjustable and saved, and live 1265 px visual/console checks pass. |
 | PLOT-002 | TESTED | UI-005 | Main spectrum/field canvas clears stale plot metadata, field maps have both axes, numeric scales and nearest-sample hover; field execution and asset regressions pass; full secondary-plot audit remains under UI-003/PLOT-001. |
+| PLOT-003 | TESTED | PLOT-002 | Main heat and signed-field maps use one color scale, clear line-chart state, preserve the correct hover model across success/failure recovery, and pass asset/syntax regressions; secondary canvases remain under UI-003. |
 | STACK-001 | NOT_STARTED | ARCH-001 | Independent multilayer editor supports top-to-bottom layers, provenance, reusable components, phase-aware spectra, project migration, tutorial, and tests. |
 | TMM-001 | VERIFIED | — | Coherent wavelength-axis R/T/A/phase and conservation match analytic Fresnel/Fabry–Pérot controls. |
 | FP-001 | NOT_STARTED | STACK-001 | Fabry–Pérot card reports resonances, FSR, finesse, linewidth/Q, buildup, loss and mirror decomposition against analytic controls. |
@@ -24,6 +26,7 @@ Allowed states: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `IMPLEMENTED`,
 | FMM-001 | VERIFIED | — | Periodic order-resolved power, complex amplitudes, phase, fields, conservation, failure recovery, and order/grid convergence tests pass. |
 | FMM-002 | VERIFIED | FMM-001 | Export and tutorial state installed factorization limits; no full Li normal-vector claim; audit regression passes. |
 | GEO-001 | TESTED | FMM-001 | Draw/import raster, straight lines, transforms, duplicate/rotate copy, extrusion, 3D labels/colors, and custom-mask regressions pass; fabrication-rule editor remains. |
+| GEO-002 | TESTED | GEO-001 | Solver feature offsets appear in primitive and imported-mask previews; transformed copies support anisotropic scale; disconnected raster features can move independently or receive a physical horizontal gap; touching regions intentionally become one feature. |
 | META-001 | IMPLEMENTED | GEO-001, OPT-001 | Local-periodic library and flat-lens guidance exist; end-to-end finite aperture/full-device verification remains. |
 | OPT-001 | VERIFIED | FMM-001 | Named observables, one-to-five bounded variables, independent constraints, feasibility, final Trust validation, and regressions pass. |
 | OPT-002 | NOT_STARTED | OPT-001 | Pareto frontier preserves candidates and reports efficiency/balance tradeoffs without requiring a hidden penalty weight. |

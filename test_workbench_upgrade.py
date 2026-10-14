@@ -239,7 +239,7 @@ class UpgradeTests(unittest.TestCase):
             with urlopen(base+'/health') as response:
                 health=json.loads(response.read())
                 self.assertEqual(health['status'],'ok')
-                self.assertEqual(health['version'],'three-region-workspace-2026-10-13')
+                self.assertEqual(health['version'],'persistent-research-shell-2026-10-14')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
             with urlopen(base+'/api/usage-stats') as response:
@@ -323,6 +323,13 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'research-three-region',script)
                 self.assertIn(b'Results & diagnostics',script)
                 self.assertIn(b'scientificViewSelect',script)
+                self.assertIn(b'--app-header-height',script)
+                self.assertIn(b'workspaceNav.style.top',script)
+                self.assertIn(b'data-mask-copy-scale-u',script)
+                self.assertIn(b'data-mask-role="move-component"',script)
+                self.assertIn(b'data-column-size="configuration"',script)
+                self.assertIn(b'workbenchColumnWidths',script)
+                self.assertIn(b'shiftX=Math.round(Number(layer.offset_x',script)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b"delete c._chart",page)
@@ -342,12 +349,17 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'workspace-deck',stylesheet)
                 self.assertIn(b'not(.show-focus-options)',stylesheet)
                 self.assertIn(b'Professional research workspace',stylesheet)
-                self.assertIn(b'grid-template-columns:minmax(360px',stylesheet)
+                self.assertIn(b'grid-template-columns:minmax(300px,var(--configuration-width',stylesheet)
+                self.assertIn(b'.app-header{position:sticky',stylesheet)
+                self.assertIn(b'--accent-violet',stylesheet)
+                self.assertIn(b'.diagnostics-summary',stylesheet)
+                self.assertIn(b'.column-sizing',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
                 self.assertIn(b'Geometry in-plane rotation',guide)
                 self.assertIn(b'Add a transformed copy in this layer',guide)
+                self.assertIn(b'Move one disconnected feature',guide)
             with urlopen(base+'/FIRST_STEPS.html') as response:
                 guide=response.read()
                 self.assertIn(b'Diffraction-order efficiency sweep',guide)
