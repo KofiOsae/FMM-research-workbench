@@ -1,5 +1,27 @@
 # Implementation log
 
+## 2026-10-14 — UI-006, GEO-002, and PLOT-003
+
+- Made the research header and workspace navigation persistent, retained all
+  three working regions from 1180 px upward, and added saved Configuration and
+  Results & diagnostics width controls.
+- Moved the newest run status, metrics, convergence evidence, warnings, and
+  export actions into the diagnostics region while keeping the active plot in
+  the scientific region.
+- Removed the duplicate main-field color scale, isolated line and heatmap hover
+  state, and preserved the correct plot model during failed-run recovery.
+- Made primitive and imported-mask previews honor solver feature offsets.
+  Added scaled transformed copies, per-component raster movement, physical gap
+  entry, and smoother circular preview tessellation.
+- Updated the arbitrary-geometry tutorial with the exact transform and
+  connected-component behavior.
+- Full suite: 106 tests passed; the final HTTP asset regression passed. Live
+  1265 px browser checks confirmed the three regions, adjustable widths,
+  offset custom-mask preview, and a clear console.
+- Committed and pushed as `040e442`. Local and Render served release marker
+  `persistent-research-shell-2026-10-14`; Render also served the new geometry,
+  width-control, and sticky-shell assets.
+
 ## 2026-10-13 — UI-005 professional three-region workspace
 
 - Replaced the document-style focused page with independent Configuration,
