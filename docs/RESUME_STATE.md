@@ -17,7 +17,9 @@ Updated: 2026-10-14
 - **Last successful tests:** 110 tests passed, including v1 migration,
   fingerprint isolation/tamper rejection, the 401-harmonic contract, reusable
   assembly assets, HTTP assets, and the existing physical controls. Live local
-  health, stack insertion, and project-save checks passed.
+  health, stack insertion, and project-save checks passed. GitHub main and the
+  Render health/assets now serve the same project-v2, 401-budget, and reusable
+  assembly checkpoint.
 - **Known failures:** none in tracked code. A system PowerShell profile emits a
   harmless Conda `Invoke-Expression` warning; use `.venv\Scripts\python.exe`.
 - **Uncommitted changes:** inspect `git status`; do not add the user's untracked

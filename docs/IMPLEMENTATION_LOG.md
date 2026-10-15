@@ -12,6 +12,9 @@
   new fingerprinted project. Full suite: 110 tests passed.
 - `STACK-001` remains in progress until the component contract has independent
   schema validation and a phase-aware optical round-trip benchmark.
+- Pushed commits `e978025` and `25b5241` to `origin/main`. Render health and
+  asset smoke tests confirmed `fourier_budget_max: 401`, project v2, and the
+  reusable assembly controls on the public deployment.
 
 ## 2026-10-15 — ARCH-001 and extended Fourier capacity
 
