@@ -1,5 +1,18 @@
 # Implementation log
 
+## 2026-10-15 — STACK-001 reusable layer assemblies
+
+- Added a compact multilayer assembly library beside the physical layer editor.
+  Users can save the active top-to-bottom sequence with a name and scientific
+  source/DOI or fabrication note, then insert it at the physical top or bottom.
+- Inserted assemblies become ordinary editable solver layers. The browser
+  library is also embedded in project-v2 specialist data and restored on open.
+- Updated the first-use handbook and added asset regressions. A live browser
+  check saved one layer, inserted it to form a two-layer stack, and exported a
+  new fingerprinted project. Full suite: 110 tests passed.
+- `STACK-001` remains in progress until the component contract has independent
+  schema validation and a phase-aware optical round-trip benchmark.
+
 ## 2026-10-15 — ARCH-001 and extended Fourier capacity
 
 - Introduced project format version 2 with explicit `solver_input`,

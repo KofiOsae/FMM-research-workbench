@@ -18,7 +18,7 @@ Allowed states: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `IMPLEMENTED`,
 | UI-006 | VERIFIED | UI-005 | Header/workspace navigation remains visible, three columns persist from 1180 px, configuration and diagnostics widths are user adjustable and saved, and live 1265 px visual/console checks pass. |
 | PLOT-002 | TESTED | UI-005 | Main spectrum/field canvas clears stale plot metadata, field maps have both axes, numeric scales and nearest-sample hover; field execution and asset regressions pass; full secondary-plot audit remains under UI-003/PLOT-001. |
 | PLOT-003 | TESTED | PLOT-002 | Main heat and signed-field maps use one color scale, clear line-chart state, preserve the correct hover model across success/failure recovery, and pass asset/syntax regressions; secondary canvases remain under UI-003. |
-| STACK-001 | NOT_STARTED | ARCH-001 | Independent multilayer editor supports top-to-bottom layers, provenance, reusable components, phase-aware spectra, project migration, tutorial, and tests. |
+| STACK-001 | IN_PROGRESS | ARCH-001 | Top-to-bottom editor, material provenance, reusable named layer assemblies with source notes, phase-aware spectra, project-v2 persistence, tutorial, and asset tests exist; independent component schema and round-trip optical benchmark remain. |
 | TMM-001 | VERIFIED | — | Coherent wavelength-axis R/T/A/phase and conservation match analytic Fresnel/Fabry–Pérot controls. |
 | FP-001 | NOT_STARTED | STACK-001 | Fabry–Pérot card reports resonances, FSR, finesse, linewidth/Q, buildup, loss and mirror decomposition against analytic controls. |
 | DBR-001 | NOT_STARTED | STACK-001 | Quarter-wave/arbitrary DBR and defect filters expose stop-band, delay/penetration, tolerance, optimization, and analytic/literature validation. |

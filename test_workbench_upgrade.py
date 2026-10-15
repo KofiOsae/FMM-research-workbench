@@ -374,6 +374,9 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'workbenchColumnWidths',script)
                 self.assertIn(b'shiftX=Math.round(Number(layer.offset_x',script)
                 self.assertIn(b'diagnostics-project',script)
+                self.assertIn(b'Reusable layer assemblies',script)
+                self.assertIn(b'stack_component_library',script)
+                self.assertIn(b'physical_order',script)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b"delete c._chart",page)
@@ -403,6 +406,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'.diagnostics-summary',stylesheet)
                 self.assertIn(b'.column-sizing',stylesheet)
                 self.assertIn(b'.diagnostics-project',stylesheet)
+                self.assertIn(b'.stack-components',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
