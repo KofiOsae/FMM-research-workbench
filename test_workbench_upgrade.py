@@ -11,7 +11,7 @@ from unittest.mock import patch
 import numpy as np
 import run_jobs
 import usage_stats
-from app import spectrum, _spectrum_diagnostics
+from app import spectrum, _spectrum_diagnostics, environment_record
 from stack import StackModel, Layer, solve_stack
 from tmm import solve_tmm
 from scattering_maps import angle_wavelength_map
@@ -62,6 +62,44 @@ class UpgradeTests(unittest.TestCase):
         return StackModel(incident_n=1, exit_n=1.5, wavelength_um=1,
                           layers=(Layer(kind='uniform', thickness_um=.125,
                                         background_material='dielectric', background_n=2),))
+
+    def test_environment_record_is_reproducible_and_nonsecret(self):
+        record = environment_record()
+        self.assertEqual(record['application'], 'FMM Research Workbench')
+        self.assertRegex(record['git_commit'], r'^(unavailable|[0-9a-f]{40})$')
+        self.assertIn('python', record)
+        self.assertIn('platform', record)
+        self.assertIn('numpy', record['packages'])
+        self.assertNotIn('environment_variables', record)
+
+    def test_project_v2_migration_and_solver_fingerprint_boundary(self):
+        from project_schema import solver_input_fingerprint, validate_project
+        legacy = {
+            'format': 'fmm-research-workbench-project', 'version': 1,
+            'layers': [{'kind': 'uniform', 'thickness_um': 0.25}],
+            'workspace': 'scattering', 'tab': 'spectrum',
+            'inputs': {'workspaceLayout': 'split'},
+            'resultViews': {'spectrum': {'rows': []}},
+        }
+        migrated = validate_project(legacy)
+        self.assertEqual(migrated['version'], 2)
+        self.assertEqual(migrated['migration']['from_version'], 1)
+        self.assertEqual(migrated['solver_input']['physical_layers'], legacy['layers'])
+        original = migrated['solver_input_sha256']
+        migrated['workspace_state']['controls']['workspaceLayout'] = 'stacked'
+        self.assertEqual(solver_input_fingerprint(migrated['solver_input']), original)
+        migrated['solver_input']['physical_layers'][0]['thickness_um'] = 0.3
+        self.assertNotEqual(solver_input_fingerprint(migrated['solver_input']), original)
+        with self.assertRaisesRegex(ValueError, 'fingerprint'):
+            validate_project(migrated)
+
+    def test_project_v2_requires_explicit_sections(self):
+        from project_schema import validate_project
+        project = {'format': 'fmm-research-workbench-project', 'version': 2,
+                   'solver_input': {'physical_layers': []}, 'workspace_state': {},
+                   'result': {}, 'validation': {}}
+        with self.assertRaisesRegex(ValueError, 'environment'):
+            validate_project(project)
 
     def test_thin_film_handbook_reference(self):
         result = solve_tmm(self.model())
@@ -242,10 +280,15 @@ class UpgradeTests(unittest.TestCase):
                 self.assertEqual(health['version'],'persistent-research-shell-2026-10-14')
                 self.assertEqual(health['queue']['solver_workers'],1)
                 self.assertEqual(health['limits']['finite_grid_cells'],300000)
+                self.assertEqual(health['limits']['fourier_budget_max'],401)
             with urlopen(base+'/api/usage-stats') as response:
                 statistics=json.loads(response.read())
                 self.assertIn('anonymous_visitors',statistics['totals'])
                 self.assertIn('No IP address',statistics['privacy'])
+            with urlopen(base+'/api/environment') as response:
+                environment=json.loads(response.read())
+                self.assertEqual(environment['application'],'FMM Research Workbench')
+                self.assertIn('git_commit',environment)
             with urlopen(base+'/workbench.js') as response:
                 script=response.read()
                 self.assertIn(b'Run from here',script)
@@ -330,11 +373,16 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'data-column-size="configuration"',script)
                 self.assertIn(b'workbenchColumnWidths',script)
                 self.assertIn(b'shiftX=Math.round(Number(layer.offset_x',script)
+                self.assertIn(b'diagnostics-project',script)
             with urlopen(base+'/') as response:
                 page=response.read()
                 self.assertIn(b"delete c._chart",page)
                 self.assertIn(b"ylabel:'y / period'",page)
                 self.assertIn(b"installMapHover(c)",page)
+                self.assertIn(b"version:2",page)
+                self.assertIn(b"solver_input_sha256",page)
+                self.assertIn(b"function migrateProject",page)
+                self.assertIn(b"/api/environment",page)
             with urlopen(base+'/workbench.css') as response:
                 stylesheet=response.read()
                 self.assertIn(b'orientation:landscape',stylesheet)
@@ -354,6 +402,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'--accent-violet',stylesheet)
                 self.assertIn(b'.diagnostics-summary',stylesheet)
                 self.assertIn(b'.column-sizing',stylesheet)
+                self.assertIn(b'.diagnostics-project',stylesheet)
             with urlopen(base+'/METASURFACE_GUIDE.html') as response:
                 guide=response.read()
                 self.assertIn(b'Flat-lens design',guide)
@@ -392,7 +441,7 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIn(b'restoreWorkbenchProjectExtras',page)
                 self.assertIn('Reflected order Rₘₙ'.encode(),page)
                 self.assertIn(b'toleranceOperatingLambda',page)
-                self.assertIn(b'max="201" value="37"',page)
+                self.assertIn(b'max="401" value="37"',page)
                 self.assertIn(b'max="512" value="64"',page)
             with urlopen(base+'/workbench.js') as response:
                 enhancements=response.read()

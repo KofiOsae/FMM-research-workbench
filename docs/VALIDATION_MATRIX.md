@@ -6,7 +6,7 @@ agreement. Passing one column does not imply passing the other.
 | Capability / tasks | Numerical and regression evidence | Independent physical evidence | Remaining gate |
 | --- | --- | --- | --- |
 | PM-001 | Protocol-file contract test: required files, IDs, states, resume fields; 106-test suite | Repository review against mandatory protocol | Preserve contract as roadmap evolves |
-| ARCH-001/ARCH-002 | Strict JSON, schema migration, fingerprint invariance, environment fields | Reopen/export round trip on local and Render | Separate envelope not complete |
+| ARCH-001/ARCH-002 | Version-2 sections, v1 migration, fingerprint invariance/tamper rejection, environment fields, browser save | Local browser creates a fingerprinted v2 project; environment endpoint reports runtime identity | ARCH-001 verified; Render reopen and publication-bundle reconstruction remain under ARCH-002/PUB-001 |
 | UI-001/UI-002/UI-005 | HTTP assets, DOM markers, responsive CSS, run interaction | Visual desktop/laptop/tablet review of Configuration, Scientific view, Results & diagnostics | Maintain with each dynamic card |
 | TMM-001/STACK-001 | Conservation, phase, project round trip | Fresnel and complex Fabry–Pérot formula | Independent stack workspace pending |
 | FP-001/DBR-001 | Resonance and stop-band convergence | Analytic symmetric cavity and quarter-wave DBR | Not started |
@@ -22,7 +22,7 @@ agreement. Passing one column does not imply passing the other.
 | OPT-001/OPT-003 | Feasibility, repeatable seeds, final Trust checks | Known synthetic optimum and fabrication distribution controls | Pareto frontier pending |
 | EMIT-001 | Quadrature/cutoff refinement and homogeneous normalization | Wylie–Sipe/Hartman planar limits | Named-mode beta pending |
 | QNM-001/BIC-001 | Pole/residue/basis and loop convergence | Independent QNM/eigenmode reference | Not started/blocked |
-| VAL-001/VAL-003 | 106-test critical suite and profile regressions | Per-row benchmark evidence above | Apply gates uniformly |
+| VAL-001/VAL-003 | 110-test critical suite and profile regressions | Per-row benchmark evidence above | Apply gates uniformly |
 | DOC-001/DOC-002 | Link/content/asset assertions | User follows expected workflow/results | Advanced worked examples pending |
 | PUB-001/PLOT-001 | Export schema and figure reconstruction | Rebuilt plot equals displayed samples | Not complete |
 

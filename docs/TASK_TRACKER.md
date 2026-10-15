@@ -6,7 +6,7 @@ Allowed states: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `IMPLEMENTED`,
 | ID | Status | Depends on | Acceptance criteria / evidence gate |
 | --- | --- | --- | --- |
 | PM-001 | VERIFIED | — | All protocol files exist, are version controlled, cross-linked, and regression-tested for required fields and valid states. |
-| ARCH-001 | IN_PROGRESS | PM-001 | Versioned project schema separates `solver_input`, `workspace_state`, `result`, `validation`, and `environment`; old projects migrate; layout changes do not alter solver fingerprint. |
+| ARCH-001 | VERIFIED | PM-001 | Versioned project schema separates `solver_input`, `workspace_state`, `result`, `validation`, and `environment`; v1 projects migrate; fingerprint tampering is rejected; layout changes do not alter solver identity; browser save and full regression suite pass. |
 | ARCH-002 | IMPLEMENTED | ARCH-001 | Exports include application commit, OS, Python, package and solver versions, and BLAS/LAPACK provider; round-trip strict JSON test passes. |
 | PLOT-001 | NOT_STARTED | ARCH-001 | One documented raw plot-data schema reconstructs every visible quantitative plot and warns on incompatible comparison. |
 | DEPLOY-001 | VERIFIED | PM-001 | Local and Render health/assets respond; queue/resource preflight and result release regressions pass; service limits are exported. |

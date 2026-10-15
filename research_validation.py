@@ -10,7 +10,8 @@ import numpy as np
 
 import run_jobs
 from observables import observable_spec, observable_value
-from stack import StackModel, grid_convergence, prepare, solve_stack, stack_convergence
+from stack import (FOURIER_BUDGET_MAX, StackModel, grid_convergence, prepare,
+                   solve_stack, stack_convergence)
 from sweep import parameter_label, set_parameter, sweep_values
 
 
@@ -51,20 +52,20 @@ def adaptive_observable_convergence(model: StackModel, observables: list[dict],
     if not 1e-8 <= tolerance <= .25:
         raise ValueError("Convergence tolerance must be from 1e-8 to 0.25")
     center = model.order_budget
-    budgets = sorted(set((max(3, center-16), center, min(201, center+24))))
+    budgets = sorted(set((max(3, center-16), center, min(FOURIER_BUDGET_MAX, center+24))))
     if len(budgets) < 3:
-        budgets = [3, 101, 201]
+        budgets = [3, 201, FOURIER_BUDGET_MAX]
     attempts = []
     while True:
         report = stack_convergence(model, budgets=budgets[-3:], tolerance=tolerance,
                                    observables=observables)
         attempts.append({"budgets": budgets[-3:], "max_change": report["max_change"],
                          "converged": report["converged"]})
-        if report["converged"] or budgets[-1] >= 201:
+        if report["converged"] or budgets[-1] >= FOURIER_BUDGET_MAX:
             report["adaptive_attempts"] = attempts
-            report["reached_maximum_budget"] = bool(budgets[-1] >= 201)
+            report["reached_maximum_budget"] = bool(budgets[-1] >= FOURIER_BUDGET_MAX)
             return report
-        candidate = min(201, budgets[-1]+24)
+        candidate = min(FOURIER_BUDGET_MAX, budgets[-1]+24)
         if candidate in budgets:
             report["adaptive_attempts"] = attempts
             report["reached_maximum_budget"] = True

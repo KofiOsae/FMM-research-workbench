@@ -55,6 +55,12 @@ import materials
 
 
 class PhysicalValidation(unittest.TestCase):
+    def test_extended_fourier_budget_contract(self):
+        model = StackModel(order_budget=401)
+        model.validate()
+        with self.assertRaisesRegex(ValueError, "3–401"):
+            StackModel(order_budget=402).validate()
+
     def test_fourier_grid_preflight_explains_aspect_ratio_failure(self):
         model=StackModel(period_x_um=60,period_y_um=.6,order_budget=201,
             grid_size=16,layers=(Layer(kind="stripe",thickness_um=.1,

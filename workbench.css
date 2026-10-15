@@ -165,7 +165,7 @@ body[data-tool-view="focus"] .brand-lockup{gap:10px}body[data-tool-view="focus"]
 body[data-tool-view="focus"] .workspace-nav{padding-top:5px;padding-bottom:5px}
 body[data-tool-view="focus"] .workspace-nav button{padding:7px 10px}body[data-tool-view="focus"] .workspace-nav button small{display:none}
 body[data-tool-view="focus"] .operation-nav{padding-top:6px;padding-bottom:6px;gap:8px}body[data-tool-view="focus"] .operation-nav label{font-size:10px}body[data-tool-view="focus"] .operation-nav button{min-height:34px}body[data-tool-view="focus"] .operation-nav input,body[data-tool-view="focus"] .operation-nav select{min-height:34px}
-body[data-tool-view="focus"]:not(.show-focus-options) .plot-appearance,body[data-tool-view="focus"]:not(.show-focus-options) .projectbar,body[data-tool-view="focus"]:not(.show-focus-options) .workspace-context{display:none!important}
+body[data-tool-view="focus"]:not(.show-focus-options) .plot-appearance,body[data-tool-view="focus"]:not(.show-focus-options)>.projectbar,body[data-tool-view="focus"]:not(.show-focus-options) .workspace-context{display:none!important}
 body[data-tool-view="focus"] #healthbar:not(.bad){display:none!important}
 body[data-tool-view="focus"] main{margin-top:10px}
 @media(max-width:1050px){.active-tool-dock{left:12px;right:12px;transform:none;width:auto;overflow-x:auto}.dock-title{display:none}.run-tray{bottom:76px}.deck-controls{order:10}}
@@ -192,7 +192,8 @@ main.research-three-region input[type="number"]{width:100%;min-height:42px;font-
 .diagnostics-region .notice,.diagnostics-region .metric{border-radius:8px}.diagnostics-region table{font-size:12px}
 .diagnostics-summary{margin:0 0 10px;padding:16px;border:1px solid #cbdde8;border-radius:11px;background:#fff;box-shadow:0 8px 24px #17384d0c}.diagnostics-summary h2{margin:3px 0 12px}.diagnostics-summary .metrics{grid-template-columns:1fr}.diagnostics-summary .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.diagnostics-summary .actions button{width:100%;min-width:0}
 .column-sizing{position:relative;margin-left:auto}.column-sizing summary{cursor:pointer;list-style:none;white-space:nowrap;color:#31536a;font-size:11px;font-weight:800}.column-sizing summary::-webkit-details-marker{display:none}.column-sizing[open]{position:absolute;right:8px;top:50px;z-index:30;width:250px;padding:12px;border:1px solid #bfd3e2;border-radius:10px;background:#fff;box-shadow:0 14px 35px #102c3f2b}.column-sizing label{display:flex;justify-content:space-between;margin:7px 0 2px;font-size:11px}.column-sizing input{width:100%}.column-sizing button{width:100%;margin-top:9px}
-body.professional-layout .workspace-context,body.professional-layout .projectbar,body.professional-layout #healthbar:not(.bad){display:none!important}
+body.professional-layout .workspace-context,body.professional-layout>.projectbar,body.professional-layout #healthbar:not(.bad){display:none!important}
+.diagnostics-project{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:0 0 10px;padding:14px;background:#fff}.diagnostics-project strong{grid-column:1/-1;color:#173b54}.diagnostics-project .secondary,.diagnostics-project .project-open{display:flex;align-items:center;justify-content:center;min-height:38px;margin:0}.diagnostics-project #projectStatus{grid-column:1/-1;min-width:0;font-size:11px;line-height:1.45}
 body.professional-layout .active-tool-dock{display:none!important}
 body.professional-layout footer{display:none}
 body.professional-layout .region-header{border-top:2px solid transparent;background:linear-gradient(#f9fcfdf4,#f9fcfdf4) padding-box,linear-gradient(90deg,var(--accent),#5f8ff2) border-box}

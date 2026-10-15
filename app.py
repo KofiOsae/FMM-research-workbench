@@ -7,6 +7,9 @@ import importlib.metadata as metadata
 import json
 import os
 import logging
+import platform
+import subprocess
+import sys
 import run_jobs
 import usage_stats
 from threading import Lock
@@ -22,7 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from bands import BandModel, solve_bands, band_convergence, solve_band_mode, full_zone_gaps
-from stack import (Layer, StackModel, solve_stack, stack_convergence, grid_convergence,
+from stack import (FOURIER_BUDGET_MAX, Layer, StackModel, solve_stack, stack_convergence, grid_convergence,
                    stack_field, field_validation, vertical_field)
 from waveguide import WaveguideModel, solve_waveguide
 from materials import material_catalog, import_material
@@ -72,6 +75,37 @@ _solver_gate = Lock()
 
 def software_versions() -> dict:
     return {name: metadata.version(name) for name in ("numpy", "scipy", "grcwa", "matplotlib")}
+
+
+def environment_record() -> dict:
+    """Reproducible runtime identity without exposing host-specific secrets."""
+    commit = os.environ.get("RENDER_GIT_COMMIT") or os.environ.get("GIT_COMMIT")
+    if not commit:
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+                stderr=subprocess.DEVNULL, timeout=2).strip()
+        except (OSError, subprocess.SubprocessError):
+            commit = "unavailable"
+    blas = {}
+    try:
+        for key in ("blas_ilp64_opt_info", "blas_opt_info", "lapack_ilp64_opt_info", "lapack_opt_info"):
+            value = np.__config__.get_info(key)
+            if value:
+                blas[key] = {name: entry for name, entry in value.items()
+                             if name in {"libraries", "library_dirs", "define_macros"}}
+    except (AttributeError, TypeError):
+        blas = {"provider": "unavailable"}
+    return {
+        "application": "FMM Research Workbench",
+        "release": "persistent-research-shell-2026-10-14",
+        "git_commit": commit,
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "packages": software_versions(),
+        "linear_algebra": blas,
+        "public_demo": PUBLIC_DEMO,
+    }
 
 
 def method_provenance(operation: str) -> dict:
@@ -147,7 +181,7 @@ def _spectrum_diagnostics(rows: list[dict]) -> dict:
                 or "data cover" in lower or "data coverage" in lower):
             return "Restrict the wavelength scan to the cited material-data range or select/import optical constants covering the requested wavelengths."
         if "order budget" in lower or "fourier" in lower and "3" in lower:
-            return "Use a Fourier budget from 3 to 201. After the run succeeds, increase it within that range and inspect convergence."
+            return f"Use a Fourier budget from 3 to {FOURIER_BUDGET_MAX}. After the run succeeds, increase it within that range and inspect convergence."
         if "grid size" in lower or "geometry grid" in lower:
             return "Use a geometry grid from 16 to 512 and keep at least 10–20 cells across the smallest feature."
         if "mask" in lower or "base64" in lower:
@@ -334,11 +368,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(json.dumps({'jobs': run_jobs.history()}).encode(), 'application/json')
         elif self.path == '/api/usage-stats':
             self._send(json.dumps(usage_stats.summary()).encode(), 'application/json')
+        elif self.path == '/api/environment':
+            self._send(json.dumps(environment_record()).encode(), 'application/json')
         elif self.path == "/health":
             self._send(json.dumps({'status':'ok', 'root':str(ROOT.resolve()),
                 'version':'persistent-research-shell-2026-10-14',
                 'public_demo': PUBLIC_DEMO,
-                'limits': {'finite_grid_cells': finite_grid_limit()},
+                'limits': {'finite_grid_cells': finite_grid_limit(),
+                           'fourier_budget_max': FOURIER_BUDGET_MAX},
                 'queue': run_jobs.status_summary()}).encode(), "application/json")
         else:
             self._send(b"Not found", "text/plain", 404)

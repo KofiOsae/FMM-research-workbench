@@ -1,5 +1,23 @@
 # Implementation log
 
+## 2026-10-15 — ARCH-001 and extended Fourier capacity
+
+- Introduced project format version 2 with explicit `solver_input`,
+  `workspace_state`, `result`, `validation`, and `environment` sections.
+- Added a canonical SHA-256 solver-input fingerprint, mismatch rejection, a
+  tested version-1 migration path, and a Python reference implementation.
+- Added runtime application/commit/Python/platform/package/linear-algebra
+  provenance and documented the complete project envelope.
+- Moved Start, Save, Open, and Methods report controls into the persistent
+  Results & diagnostics column. A live browser save created a version-2 file
+  and reported its solver fingerprint.
+- Raised the periodic finite-stack Fourier ceiling from 201 to 401 throughout
+  model validation, field/optimizer refinement, adaptive Trust validation,
+  health limits, UI guidance, tutorials, and tests. Settings above 201 are
+  explicitly reserved for expensive final refinement.
+- Full suite: 110 tests passed. The live local health endpoint reported
+  `fourier_budget_max: 401`; the updated browser UI and project export passed.
+
 ## 2026-10-14 — UI-006, GEO-002, and PLOT-003
 
 - Made the research header and workspace navigation persistent, retained all

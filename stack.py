@@ -11,6 +11,8 @@ import numpy as np
 
 from materials import material_n, material_energy_terms, MATERIAL_INFO
 
+FOURIER_BUDGET_MAX = 401
+
 
 @dataclass(frozen=True)
 class Layer:
@@ -93,8 +95,8 @@ class StackModel:
             raise ValueError("Lattice-vector angle must be from 30° to 150°")
         if min(self.wavelength_um, self.incident_n, self.exit_n, self.period_x_um, self.period_y_um) <= 0:
             raise ValueError("Wavelength, indices, and periods must be positive")
-        if not 3 <= self.order_budget <= 201 or not 16 <= self.grid_size <= 512:
-            raise ValueError("Order budget must be 3–201 and grid size 16–512")
+        if not 3 <= self.order_budget <= FOURIER_BUDGET_MAX or not 16 <= self.grid_size <= 512:
+            raise ValueError(f"Order budget must be 3–{FOURIER_BUDGET_MAX} and grid size 16–512")
         if not 1 <= len(self.layers) <= 64:
             raise ValueError("Use between one and 64 physical layers")
         for layer in self.layers:
@@ -599,9 +601,9 @@ def stack_convergence(model: StackModel, budgets=None, tolerance=.01,
                       observables: list[dict] | None = None) -> dict:
     if budgets is None:
         middle = model.order_budget
-        budgets = (max(3, middle-16), middle, min(201, middle+24))
+        budgets = (max(3, middle-16), middle, min(FOURIER_BUDGET_MAX, middle+24))
         if len(set(budgets)) != 3:
-            if middle >= 177:
+            if middle >= FOURIER_BUDGET_MAX-24:
                 budgets = (max(3, middle-48), max(3, middle-24), middle)
             else:
                 budgets = (3, min(27, max(4, middle+8)), min(51, max(5, middle+24)))
@@ -685,9 +687,9 @@ def field_validation(model: StackModel, layer_index=0, z_fraction=.5,
     """Relative RMS sensitivity of |E|² to Fourier and pixel refinement."""
     if model.grid_size > 256:
         raise ValueError("Field grid validation requires a base grid of at most 256 so the doubled grid stays within 512")
-    if model.order_budget >= 201:
-        raise ValueError("Choose an order budget below 201 for field refinement")
-    high_budget = min(201, model.order_budget+24)
+    if model.order_budget >= FOURIER_BUDGET_MAX:
+        raise ValueError(f"Choose an order budget below {FOURIER_BUDGET_MAX} for field refinement")
+    high_budget = min(FOURIER_BUDGET_MAX, model.order_budget+24)
     base_model = model
     high_model = StackModel(**{**asdict(model), "layers": model.layers,
                                "order_budget": high_budget})

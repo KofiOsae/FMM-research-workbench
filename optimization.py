@@ -7,7 +7,7 @@ import numpy as np
 from scipy.optimize import differential_evolution, LinearConstraint
 from run_jobs import progress
 
-from stack import StackModel, solve_stack
+from stack import FOURIER_BUDGET_MAX, StackModel, solve_stack
 from sweep import set_parameter
 from observables import (design_metric_spec, design_metric_value,
                          evaluate_named_observables,
@@ -114,9 +114,9 @@ def optimize_geometry(model: StackModel, variables: list[dict], objectives: list
             contribution = objective["weight"]*raw
             convergence_change = None
             if convergence_aware:
-                high_budget = min(201, point.order_budget+24)
+                high_budget = min(FOURIER_BUDGET_MAX, point.order_budget+24)
                 if high_budget == point.order_budget:
-                    raise ValueError("Convergence-aware optimization needs an order budget below 201")
+                    raise ValueError(f"Convergence-aware optimization needs an order budget below {FOURIER_BUDGET_MAX}")
                 high = StackModel(**{**asdict(point), "layers": point.layers,
                                      "order_budget": high_budget})
                 high_result = solve_stack(high)
